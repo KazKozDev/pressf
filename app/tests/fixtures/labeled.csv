@@ -1,0 +1,4 @@
+qid,prompt,completion,grade
+1,What is the base limit?,The base plan allows 600 requests per hour.,pass
+2,What is the base limit?,The base plan allows 1000 requests per hour.,fail
+3,Does the product support webhooks?,Yes, webhooks are available from the dashboard.,fail

@@ -1,0 +1,52 @@
+[project]
+name = "pressf"
+version = "0.1.1"
+description = "Lazy goldset annotation: agent does the work, you press F"
+requires-python = ">=3.11"
+dependencies = [
+    "anthropic>=0.49",
+    "pydantic>=2.7",
+    "typer>=0.12",
+    "textual>=1.0",
+    "rich>=13.7",
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+xlsx = ["openpyxl>=3.1"]
+# vector database adapters
+chroma = ["chromadb>=0.5"]
+faiss = ["faiss-cpu>=1.8", "numpy"]
+qdrant = ["qdrant-client>=1.9"]
+pgvector = ["psycopg[binary]>=3.1"]
+pinecone = ["pinecone>=5.0"]
+weaviate = ["weaviate-client>=4.6"]
+milvus = ["pymilvus>=2.4"]
+elastic = ["elasticsearch>=8.13"]
+lancedb = ["lancedb>=0.8"]
+# OpenAI judge (BYO provider) — the same package as for embeddings
+openai = ["openai>=1.60"]
+# query embeddings (required by most vector adapters)
+local-embeddings = ["sentence-transformers>=3.0"]
+openai-embeddings = ["openai>=1.60"]
+voyage-embeddings = ["voyageai>=0.2"]
+# Hugging Face dataset export
+hf = ["datasets>=2.19"]
+all = [
+    "pressf[xlsx,chroma,faiss,qdrant,pgvector,pinecone,weaviate,milvus,elastic,lancedb,local-embeddings,hf]",
+]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+lazy = "pressf.cli:app"
+pressf = "pressf.cli:app"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["pressf"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

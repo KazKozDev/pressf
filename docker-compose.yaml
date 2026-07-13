@@ -1,0 +1,35 @@
+# Сервисы для интеграционных тестов адаптеров (tests/integration/).
+# Запуск: docker compose up -d && LAZY_INTEGRATION=1 pytest tests/integration
+version: "3.9"
+
+services:
+  qdrant:
+    image: qdrant/qdrant:latest
+    ports: ["6333:6333"]
+
+  chroma:
+    image: chromadb/chroma:latest
+    ports: ["8000:8000"]
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_PASSWORD: lazy
+      POSTGRES_DB: lazy
+    ports: ["5433:5432"]
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.4
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports: ["9200:9200"]
+
+  weaviate:
+    image: cr.weaviate.io/semitechnologies/weaviate:1.25.4
+    environment:
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: "true"
+      PERSISTENCE_DATA_PATH: /var/lib/weaviate
+      DEFAULT_VECTORIZER_MODULE: none
+    ports: ["8080:8080", "50051:50051"]

@@ -1,0 +1,3 @@
+{"qid":"1","prompt":"What is the base limit?","completion":"The base plan allows 600 requests per hour.","grade":"pass"}
+{"qid":"2","prompt":"What is the base limit?","completion":"The base plan allows 1000 requests per hour.","grade":"fail"}
+{"qid":"3","prompt":"Does the product support webhooks?","completion":"Yes, webhooks are available from the dashboard.","grade":"fail"}

@@ -1,0 +1,21 @@
+project: fluxus-demo
+task: rag_faithfulness
+retriever:
+  kind: docs_folder
+  top_k: 8
+  path: demo/kb
+ingest:
+  question: question
+  answer: answer
+  id: id
+llm:
+  judge_model: claude-haiku-4-5
+  escalation_model: claude-opus-4-8
+  escalation_threshold: 0.7
+  use_batch_api: true
+  batch_min_examples: 5
+  batch_poll_seconds: 20
+  max_budget_usd: 10.0
+export:
+  formats:
+  - jsonl

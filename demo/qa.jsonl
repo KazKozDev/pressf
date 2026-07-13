@@ -1,0 +1,8 @@
+{"id": "demo_01", "question": "What is the request limit on the Basic plan?", "answer": "The Basic plan has a limit of 600 requests per hour for each API key."}
+{"id": "demo_02", "question": "What is the request limit on the Basic plan?", "answer": "The limit is 1,000 requests per hour, and exceeding it returns a 429 error."}
+{"id": "demo_03", "question": "What does the API return when the limit is exceeded?", "answer": "The server returns HTTP 429 Too Many Requests, and the Retry-After header contains the number of seconds until the limit is lifted."}
+{"id": "demo_04", "question": "How much does the Pro plan cost?", "answer": "The Pro plan costs $49 per month and includes one million requests; overages cost $0.05 per 1,000 requests."}
+{"id": "demo_05", "question": "Does the API support webhooks?", "answer": "Yes, webhooks are configured in the Integrations section of the account dashboard, and signatures are verified with the X-Fluxus-Signature header."}
+{"id": "demo_06", "question": "Does the API support webhooks?", "answer": "The supplied documentation contains no information about webhooks, so I cannot answer this question."}
+{"id": "demo_07", "question": "How do I revoke an API key?", "answer": "Unfortunately, the documentation does not describe how to revoke keys."}
+{"id": "demo_08", "question": "How do test keys differ from live keys?", "answer": "Test keys use the fx_test_ prefix, work only in the sandbox, and are not billed; live keys use the fx_live_ prefix. In addition, test keys are automatically deleted after 30 days."}

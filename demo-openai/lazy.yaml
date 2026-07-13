@@ -1,0 +1,20 @@
+project: fluxus-demo-openai
+task: rag_faithfulness
+retriever:
+  kind: docs_folder
+  top_k: 8
+  path: demo/kb
+ingest:
+  question: question
+  answer: answer
+  id: id
+llm:
+  provider: openai
+  judge_model: gpt-5.4-mini
+  escalation_model: gpt-5.4
+  escalation_threshold: 0.7
+  use_batch_api: false
+  max_budget_usd: 10.0
+export:
+  formats:
+  - jsonl

@@ -1,0 +1,14 @@
+.env
+.venv/
+node_modules/
+app/node_modules/
+app/dist/
+app/release/
+__pycache__/
+.pytest_cache/
+test-results/
+app/test-results/
+tmp/
+out/
+*.dmg
+*.dmg.blockmap
