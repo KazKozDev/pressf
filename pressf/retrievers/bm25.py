@@ -1,7 +1,6 @@
 """Pure Okapi BM25 without dependencies.
 
-Used by the docs_folder and chunks_file adapters in M1 (in M2 docs_folder
-moves to chroma+embeddings, BM25 will remain fallback mode without embeddings)."""
+Used by the docs_folder and chunks_file adapters."""
 
 from __future__ import annotations
 

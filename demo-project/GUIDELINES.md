@@ -1,17 +1,17 @@
-# Гайдлайны разметки: fluxus-demo
+# Annotation Guidelines: fluxus-demo
 
-## Задача
-Фактическая верность ответов бота о API Флюксус относительно документации.
+## Task
+Factual faithfulness of bot answers about the Fluxus API against the documentation.
 
-## Метки
-- **p (позитив)** — ответ фактически верен и подтверждается базой знаний.
-  Отказ отвечать, когда ответа в базе действительно нет, — тоже **p**.
-- **f (негатив)** — ответ противоречит базе, выдуман (в базе нет ответа, а модель ответила),
-  верен лишь частично, или модель отказалась, хотя ответ в базе есть.
-- **s (skip)** — не получается решить. Обязательно с заметкой: каждая заметка — сигнал,
-  что этот файл надо уточнить.
+## Labels
+- **p (positive)** — the answer is factually correct and supported by the knowledge base.
+  Refusing to answer when the answer is genuinely absent from the knowledge base is also **p**.
+- **f (negative)** — the answer contradicts the knowledge base, is fabricated (the answer is not in the knowledge base but the model answered anyway),
+  is only partially correct, or the model refused to answer despite the answer being in the knowledge base.
+- **s (skip)** — cannot decide. Always include a note: each note is a signal
+  that this guidelines file needs clarification.
 
-## Пограничные случаи
-<!-- дополняй по мере разметки; заметки к скипам — кандидаты сюда -->
-- Ответ верный, но неполный: p, если сказанное верно и достаточно для вопроса; f, если упущенное искажает суть.
-- Мелкие неточности формулировок без искажения фактов: p.
+## Edge Cases
+<!-- add as you annotate; notes on skips are candidates to go here -->
+- Answer is correct but incomplete: p if what is stated is correct and sufficient for the question; f if the omission distorts the meaning.
+- Minor wording inaccuracies without factual distortion: p.

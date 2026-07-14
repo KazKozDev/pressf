@@ -21,7 +21,7 @@ class RetrieverConfig(BaseModel):
 
 
 class EmbeddingsConfig(BaseModel):
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     provider: str = "sentence_transformers"
     model: str = ""
@@ -81,23 +81,23 @@ class BotConfig(BaseModel):
       or (if there is no placeholder) the question goes to the bot on stdin; the response is read from stdout;
     - kind=http — POST/GET on endpoint; body - JSON-template with {question};
       the answer is obtained from JSON via the dotted answer_path.
-    Extra fields are allowed - the connector itself knows what it needs."""
+    The supported connector fields are explicit so invalid configuration is rejected."""
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
     kind: str  # command | http
     timeout: float = 60.0
     answer_path: str | None = None  #dotted-path to response, if the bot responds with JSON-th
-
-
-TASK_ALIASES = {
-    "search_quality": "retrieval_quality",
-    "compare_versions": "pairwise_compare",
-}
+    command: str | None = None
+    url: str | None = None
+    method: str = "POST"
+    headers: dict[str, str] | None = None
+    body: str | None = None
 
 
 def canonical_task(task: str | None) -> str:
-    return TASK_ALIASES.get(task or "rag_faithfulness", task or "rag_faithfulness")
+    task = task or "rag_faithfulness"
+    return {"search_quality": "retrieval_quality", "compare_versions": "pairwise_compare"}.get(task, task)
 
 
 class ProjectConfig(BaseModel):

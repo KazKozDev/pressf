@@ -97,10 +97,6 @@ def export_goldset(project: Project, formats: list[str] | None = None) -> list[P
     return written
 
 
-def _norm_q(q: str) -> str:
-    return " ".join(q.strip().lower().split())
-
-
 def export_pairs(project: Project) -> Path:
     """Preparations DPO-pairs (honestly - see PLAN.md §1.1 case 3): rejected - our f-response;
     chosen is filled with the p-answer to the same question if it is in the dataset, otherwise null —
@@ -143,12 +139,12 @@ def export_pairs(project: Project) -> Path:
     good_by_q: dict[str, str] = {}
     for r in records:
         if r["label"] == "p":
-            good_by_q.setdefault(_norm_q(r["question"]), r["answer"])
+            good_by_q.setdefault(" ".join(r["question"].strip().lower().split()), r["answer"])
     pairs = [
         {
             "question": r["question"],
             "rejected": r["answer"],
-            "chosen": good_by_q.get(_norm_q(r["question"])),
+            "chosen": good_by_q.get(" ".join(r["question"].strip().lower().split())),
             "example_id": r["id"],
             "agent_category": r["agent_category"],
         }

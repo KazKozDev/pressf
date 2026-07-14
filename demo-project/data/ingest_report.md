@@ -1,7 +1,7 @@
-# Отчёт ingest
+# Ingest Report
 
-- Источник: `demo/qa.jsonl`
-- Всего строк: 8
-- Принято: 8
-- Дублей отброшено: 0
-- Брак: 0
+- Source: `demo/qa.jsonl`
+- Total rows: 8
+- Accepted: 8
+- Duplicates discarded: 0
+- Errors: 0

@@ -23,15 +23,15 @@ class HttpBot:
     def __init__(self, cfg: BotConfig):
         self.timeout = cfg.timeout
         self.answer_path = cfg.answer_path
-        url = getattr(cfg, "url", None)
+        url = cfg.url
         if not url:
             raise BotError("bot.kind=http requires url field")
         self.url: str = url
-        self.method: str = str(getattr(cfg, "method", "POST")).upper()
-        self.headers: dict = dict(getattr(cfg, "headers", None) or {})
+        self.method = cfg.method.upper()
+        self.headers = dict(cfg.headers or {})
         self.headers.setdefault("Content-Type", "application/json")
         #template body; if not specified, send {"question": "..."}
-        self.body_template: str = getattr(cfg, "body", None) or '{"question": {question_json}}'
+        self.body_template = cfg.body or '{"question": {question_json}}'
 
     def _build_body(self, question: str) -> bytes:
         body = self.body_template.replace("{question_json}", json.dumps(question, ensure_ascii=False))

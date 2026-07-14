@@ -1,7 +1,6 @@
 """Mode «folder with documents»: we read, chunk and index ourselves.
 
-The default and most «for a fool» mode - it doesn’t require you to know which one you have
-vector base. In M1 the index is BM25; M2 will add an option with embeddings."""
+The default and most «for a fool» mode - it doesn’t require you to know which vector base you have."""
 
 from __future__ import annotations
 

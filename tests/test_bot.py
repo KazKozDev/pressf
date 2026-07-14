@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from pressf.bot import build_bot
 from pressf.bot.base import BotError, extract_answer
@@ -70,6 +71,11 @@ def test_command_bot_missing_binary_raises():
 def test_unknown_kind_raises():
     with pytest.raises(BotError):
         build_bot(BotConfig(kind="carrier-pigeon"))
+
+
+def test_bot_config_rejects_unknown_connector_fields():
+    with pytest.raises(ValidationError, match="unknown"):
+        BotConfig(kind="command", command="cat", unknown="value")
 
 
 #── lazy run (regression loop) ──────────────────── ────────────────────

@@ -20,7 +20,7 @@ class CommandBot:
     def __init__(self, cfg: BotConfig):
         self.timeout = cfg.timeout
         self.answer_path = cfg.answer_path
-        template = getattr(cfg, "command", None)
+        template = cfg.command
         if not template:
             raise BotError("bot.kind=command requires a command field (shell command template)")
         self.template: str = template
