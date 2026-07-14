@@ -1,361 +1,344 @@
-# pressf — план
+# pressf — plan
 
-**Инструмент «разметка для ленивых»** (pressf, экс-LazyAnnotator; имя выбрано 2026-07-11: «Press F to pay respects» + клавиши p/f/s): агент делает всю грязную работу по созданию голдсета для RAG/LLM-систем, человек только жмёт `p`/`f`/`s`. На выходе — проверенный человеком, версионированный, готовый к использованию датасет. Без кодинга со стороны пользователя. Python-пакет и канонический CLI — `pressf`, короткий алиас CLI — `lazy`, конфиг-файл — `lazy.yaml`.
+**«Lazy annotation» tool** (pressf, ex-LazyAnnotator; name chosen 2026-07-11: «Press F to pay respects» + p/f/s keys): the agent does all the dirty work of creating a goldset for RAG/LLM systems; the human only presses `p`/`f`/`s`. The output is a human-verified, versioned, ready-to-use dataset. No coding on the user's side. Python package and canonical CLI is `pressf`, short CLI alias is `lazy`, config file is `lazy.yaml`.
 
----
+## 1. Concept
 
-## 1. Концепция
-
-Четыре этапа, агент ведёт пользователя за руку:
+Four stages, the agent guides the user by the hand:
 
 ```
-[1. INGEST]  →  [2. SETUP]  →  [3. PRECHECK]  →  [4. REVIEW]  →  [EXPORT]
- приём сырья     мастер          факт-чек          TUI-ревью       датасет
- (CSV/JSONL/     настройки       агентом           человеком       + отчёт
-  Excel/логи)    без кода        (офлайн/ночью)    (p/f/s/u/n)
+ raw material      wizard          fact-check        TUI-review       dataset
+ (CSV/JSONL/       no-code         by agent          by human        + report
+  Excel/logs)      setup           (offline/         (p/f/s/u/n)
+                                    overnight)
 ```
 
-Ключевые принципы:
-- **Человек — ревьюер, не разметчик.** Агент выносит предварительный вердикт с обоснованием и цитатами из базы; человек подтверждает одной клавишей.
-- **Две оси вердикта не смешиваются**: answerability (был ли ответ в базе вообще) и groundedness (соответствует ли данный ответ базе). Это разные типы ошибок RAG-а и чинятся по-разному.
-- **Разметка летает**: все LLM-вызовы — офлайн-этап; TUI работает мгновенно.
-- **Каждое нажатие — атомарная запись.** Падение процесса не теряет работу; resume с того же места.
-- **Anchoring bias смягчаем** цитатами (проверить цитату легко и честно) и статистикой согласия человек/агент.
+Key principles:
+- **Human = reviewer, not annotator.** The agent issues a preliminary verdict with reasoning and citations from the knowledge base; the human confirms with a single key.
+- **Two verdict axes are never mixed**: answerability (was the answer in the knowledge base at all) and groundedness (does the given answer match the knowledge base). These are different types of RAG errors and are fixed differently.
+- **Annotation flies**: all LLM calls are an offline phase; the TUI works instantly.
+- **Every keystroke is an atomic write.** Process crash does not lose work; resume from the same spot.
+- **Anchoring bias is mitigated** by citations (verifying a citation is easy and honest) and human/agent agreement statistics.
 
-### 1.1 Для чего применимо (по убыванию практической ценности)
+### 1.1 Applicability (descending practical value)
 
-1. **Регрессионное тестирование RAG-а — главный кейс.** У любой команды с RAG-ом в проде есть вечный вопрос: «мы поменяли чанкинг/эмбеддинги/промпт — стало лучше или хуже?» Без голдсета ответ — «вроде норм», с голдсетом — число. Инструмент превращает недельную задачу в вечер.
-2. **Калибровка LLM-судьи.** Автоматическому eval нельзя верить, пока судью не сверили с человеком. Наш выход — ровно этот материал: человеческие метки + вердикты агента бок о бок. Инструмент буквально сам себя проверяет (см. agreement-отчёт, §4.4, и self-improving loop в рисках).
-3. **Фильтрация данных для дообучения.** Для SFT — напрямую: p-ответы в обучение, f-ответы отсеять; разметка p/f — это ровно оно. Для DPO — честно: наша разметка даёт только «плохую» половину пары; «хороший» ответ к тому же вопросу надо добирать отдельно (эталоны, генерация другой моделью). Экспортируем заготовки пар, не готовый DPO-датасет.
-4. **Аудит бота в проде.** Служба поддержки на LLM: раз в неделю прогнал свежие диалоги, за полчаса отревьюил — метрика качества в динамике + подборка провалов для разбора.
-5. **Датасеты для классификаторов и guardrails** — токсичность, off-topic, PII. Тот же бинарный цикл, только без факт-чек-части.
-6. **Разметка «была ли галлюцинация»** для исследований и отчётов — исходный кейс проекта.
+1. **RAG regression testing — the main use case.** Every team with RAG in production has the eternal question: «we changed chunking/embeddings/prompt — is it better or worse?» Without a goldset the answer is «seems fine»; with a goldset it's a number. The tool turns a week-long task into an evening.
+2. **LLM judge calibration.** Automated eval cannot be trusted until the judge is calibrated against a human. Our output is exactly this material: human labels + agent verdicts side by side. The tool literally checks itself (see agreement report, §4.4, and self-improving loop in risks).
+3. **Data filtering for fine-tuning.** For SFT — directly: p-answers go into training, f-answers are discarded; p/f labeling is exactly that. For DPO — honestly: our labeling gives only the «bad» half of a pair; the «good» answer for the same question must be sourced separately (references, generation by another model). We export pair templates, not a ready DPO dataset.
+4. **Production bot audit.** LLM-powered support: run fresh dialogs weekly, review in 30 minutes — a quality metric over time + a collection of failures for review.
+5. **Datasets for classifiers and guardrails** — toxicity, off-topic, PII. Same binary cycle, just without the fact-check part.
+6. **«Was this a hallucination» labeling** for research and reports — the project's original use case.
 
-Следствия для дизайна: кейсы 1–2 требуют версионированного самоописанного экспорта и agreement-статистики (есть в §4.4); кейс 3 — экспорта SFT-фильтрата и заготовок DPO-пар (флаг `--pairs`: наша f-метка + слот под «хороший» ответ, M4); кейс 4 — идемпотентного до-прогона свежих данных в существующий проект (`lazy check` уже идемпотентен, ingest должен уметь дописывать); кейс 5 — режима задачи без ретривера (судья без факт-чека, по гайдлайнам; в v1 — только заглушка `task: classification` в конфиге, реализации нет). Диалоговый агент настройки (§4.1) предлагает задачу ровно из этого списка, глядя на материал.
+Design implications: use cases 1–2 require versioned self-described export and agreement statistics (present in §4.4); use case 3 requires SFT filter export and DPO pair templates (flag `--pairs`: our f-label + slot for «good» answer, M4); use case 4 requires idempotent re-run of fresh data into an existing project (`lazy check` is already idempotent, ingest must support appending); use case 5 requires a task mode without a retriever (judge without fact-check, based on guidelines; in v1 — only stub `task: classification` in config, no implementation). The setup dialog agent (§4.1) offers a task from this exact list, looking at the material.
 
-**Правило фокуса v1.** Ценность продукта доказывается одним путём: RAG faithfulness от сырья до голдсета (кейсы 1, 2, 6; кейс 4 — их повторный прогон). Фильтр для любой новой фичи: «помогает ли она этому пути?» — если нет, она едет после v1, даже если «почти готова». Кейс 5 (классификация без факт-чека) — отдельно опасный соблазн: это территория Prodigy, где у нас нет преимущества; наша уникальность — факт-чек против базы знаний.
+**v1 focus rule.** Product value is proven by a single path: RAG faithfulness from raw material to goldset (use cases 1, 2, 6; use case 4 is their re-run). Filter for any new feature: «does it help this path?» — if not, it ships after v1, even if «almost ready». Use case 5 (classification without fact-check) is a separate dangerous temptation: it is Prodigy territory where we have no advantage; our uniqueness is fact-check against a knowledge base.
 
----
-
-## 2. Архитектура
+## 2. Architecture
 
 ```
-pressf/  (репозиторий)
-├── pyproject.toml
-├── PLAN.md
-├── README.md
-├── pressf/
-│   ├── __init__.py
-│   ├── cli.py               # входная точка: lazy <command> (typer)
-│   ├── config.py            # модель конфига проекта (pydantic), load/save YAML
-│   ├── schemas.py           # ВСЕ pydantic-схемы данных (Example, Verdict, Annotation, ...)
-│   ├── ingest/
-│   │   ├── __init__.py
-│   │   ├── loaders.py       # CSV / JSONL / Excel / TSV → сырые записи
-│   │   ├── mapper.py        # LLM-маппинг колонок на схему (question/answer/context/id)
-│   │   └── validate.py      # валидация, дедуп, отчёт о браке
-│   ├── retrievers/
-│   │   ├── __init__.py      # реестр адаптеров, фабрика по конфигу
-│   │   ├── base.py          # Protocol Retriever + Chunk
-│   │   ├── chroma.py
-│   │   ├── faiss_.py
-│   │   ├── qdrant.py
-│   │   ├── pgvector.py
-│   │   ├── pinecone_.py
-│   │   ├── weaviate_.py
-│   │   ├── milvus.py
-│   │   ├── elastic.py       # Elasticsearch + OpenSearch (один адаптер, два клиента)
-│   │   ├── lancedb_.py
-│   │   ├── docs_folder.py   # режим «папка с документами»: сам чанкует и индексирует
-│   │   └── chunks_file.py   # режим «экспортированные чанки» (JSONL) — универсальный fallback
-│   ├── embeddings.py        # слой эмбеддингов для адаптеров, которым нужен вектор запроса
-│   ├── llm/
-│   │   ├── __init__.py
-│   │   ├── client.py        # обёртка anthropic SDK: retry, кэш-брейкпоинты, счётчик $
-│   │   ├── batch.py         # Batch API: собрать/отправить/поллить/разобрать
-│   │   └── prompts.py       # все промпты в одном месте (судья, маппер, мастер)
-│   ├── judge/
-│   │   ├── __init__.py
-│   │   ├── claims.py        # ответ → атомарные утверждения
-│   │   ├── verify.py        # клейм + чанки → supported/contradicted/not_found
-│   │   ├── aggregate.py     # клеймы → итоговый вердикт (p/f + категория + confidence)
-│   │   └── escalate.py      # неуверенные вердикты → пересмотр старшей моделью
-│   ├── review/
-│   │   ├── __init__.py
-│   │   ├── tui.py           # textual-приложение: карточка, клавиши, статусбар
-│   │   ├── session.py       # порядок примеров, resume, undo-стек, атомарная запись
-│   │   └── agreement.py     # статистика согласия человек/агент, self-check выборка
-│   ├── export/
-│   │   ├── __init__.py
-│   │   ├── writers.py       # JSONL / CSV / HuggingFace datasets
-│   │   └── report.py        # итоговый отчёт (md): цифры, разногласия, скипы
-│   └── wizard.py            # диалоговый агент настройки (этап 2): LLM-диалог + tools + конечный автомат
-└── tests/
-    ├── test_schemas.py
-    ├── test_ingest.py
-    ├── test_retrievers.py   # контрактный тест, один на все адаптеры
-    ├── test_judge.py        # на фикстурах, LLM замокан
-    ├── test_session.py      # resume, undo, атомарность
-    └── test_export.py
+pressf/  (repository)
+│
+├── cli.py               # entry point: lazy <command> (typer)
+├── config.py            # project config model (pydantic), load/save YAML
+├── schemas.py           # ALL pydantic data schemas (Example, Verdict, Annotation, ...)
+├── ingest/
+│   ├── loaders.py       # CSV / JSONL / Excel / TSV → raw records
+│   ├── mapper.py        # LLM column mapping to schema (question/answer/context/id)
+│   └── validate.py      # validation, dedup, error report
+├── retrievers/
+│   ├── __init__.py      # adapter registry, factory from config
+│   ├── chroma.py
+│   ├── faiss_.py
+│   ├── qdrant.py
+│   ├── pgvector.py
+│   ├── pinecone_.py
+│   ├── weaviate_.py
+│   ├── milvus.py
+│   ├── elastic.py       # Elasticsearch + OpenSearch (one adapter, two clients)
+│   ├── lancedb_.py
+│   ├── docs_folder.py   # «folder of documents» mode: chunks and indexes itself
+│   └── chunks_file.py   # «exported chunks» mode (JSONL) — universal fallback
+├── embeddings.py        # embedding layer for adapters that need a query vector
+├── llm/
+│   ├── client.py        # anthropic SDK wrapper: retry, cache breakpoints, $ counter
+│   ├── batch.py         # Batch API: collect/submit/poll/parse
+│   └── prompts.py       # all prompts in one place (judge, mapper, wizard)
+├── judge/
+│   ├── claims.py        # answer → atomic claims
+│   ├── verify.py        # claim + chunks → supported/contradicted/not_found
+│   ├── aggregate.py     # claims → final verdict (p/f + category + confidence)
+│   └── escalate.py      # uncertain verdicts → re-review by senior model
+├── review/
+│   ├── tui.py           # textual app: card, keys, status bar
+│   ├── session.py       # example ordering, resume, undo stack, atomic write
+│   └── agreement.py     # human/agent agreement stats, self-check sampling
+├── export/
+│   └── report.py        # final report (md): numbers, disagreements, skips
+└── wizard.py            # setup dialog agent (stage 2): LLM dialog + tools + state machine
+
+tests/
+    ├── test_retrievers.py   # contract test, one for all adapters
+    ├── test_judge.py        # on fixtures, LLM mocked
+    ├── test_session.py      # resume, undo, atomicity
+    ├── ...
 ```
 
-Стек: **Python 3.11+, официальный `anthropic` SDK, pydantic v2, typer (CLI), textual (TUI), rich**. Адаптеры баз — **extras** в pyproject (`pip install pressf[qdrant]`), чтобы базовая установка не тянула девять клиентов.
+Stack: **Python 3.11+, official `anthropic` SDK, pydantic v2, typer (CLI), textual (TUI), rich**. DB adapters — **extras** in pyproject (`pip install pressf[qdrant]`), so the base install doesn't pull nine clients.
 
----
+## 3. Data Formats
 
-## 3. Форматы данных
-
-Всё состояние проекта живёт в рабочей директории `./<project>/`:
+All project state lives in the working directory `./<project>/`:
 
 ```
-myproject/
-├── lazy.yaml            # конфиг (см. ниже)
-├── GUIDELINES.md        # гайдлайны разметки (генерирует мастер, правит человек)
+├── lazy.yaml            # config (see below)
+├── GUIDELINES.md        # annotation guidelines (generated by wizard, edited by human)
 ├── data/
-│   ├── raw/…            # исходники как есть
-│   ├── examples.jsonl   # нормализованные примеры после ingest
-│   ├── verdicts.jsonl   # вердикты агента после precheck
-│   └── annotations.jsonl# решения человека (append-only лог)
+│   ├── raw/…            # raw sources as-is
+│   ├── examples.jsonl   # normalized examples after ingest
+│   ├── verdicts.jsonl   # agent verdicts after precheck
+│   └── annotations.jsonl# human decisions (append-only log)
 └── out/
-    ├── goldset.jsonl    # итог
-    └── report.md
+    ├── goldset.jsonl    # final output
+    ├── report.md
+    └── ...
 ```
 
-### 3.1 Example (после ingest)
+### 3.1 Example (after ingest)
+
 ```json
-{"id": "ex_0001", "question": "...", "answer": "...",
- "context": [{"text": "...", "source": "..."}] | null,
- "meta": {"source_row": 17, "raw_file": "logs.csv"}}
+{"id": "ex_0001", "question": "What limit?", "answer": "1000/hour", "context": [...]}
 ```
-`context` — чанки, которые проверяемый RAG использовал при генерации (если есть в логах). Судья ищет в базе сам, но переданный контекст показывается человеку.
 
-### 3.2 Verdict (после precheck)
+`context` — chunks that the evaluated RAG used during generation (if present in logs). The judge searches the knowledge base itself, but the provided context is shown to the human.
+
+### 3.2 Verdict (after precheck)
+
 ```json
 {"example_id": "ex_0001",
  "claims": [
-   {"text": "Лимит 1000 запросов в час",
-    "status": "supported|contradicted|not_found",
-    "evidence": [{"text": "...цитата...", "source": "doc_42", "score": 0.87}]}
+   {"text": "Limit is 1000 requests per hour",
+    "status": "contradicted",
+    "evidence": [{"text": "...citation...", "source": "doc_42", "score": 0.87}]}
  ],
- "answerable": true,
+ "is_refusal": false, "answerable": true,
  "grounded": false,
- "recommendation": "p|f",
- "category": "correct|hallucination_contradicts|hallucination_unanswerable|partial",
- "confidence": 0.0-1.0,
- "reasoning": "2-3 предложения для человека",
+ "recommendation": "f", "category": "hallucination_contradicts",
+ "confidence": 0.73,
+ "reasoning": "2-3 sentences for the human",
  "judge_model": "claude-haiku-4-5", "escalated": false,
- "cost_usd": 0.0031, "created_at": "..."}
+ "cost_usd": 0.0012}
 ```
-Категории — произведение двух осей:
-| answerable | ответ модели | grounded | category | recommendation |
-|---|---|---|---|---|
-| true | дан | true | `correct` | p |
-| true | дан | false | `hallucination_contradicts` (или `partial`) | f |
-| true | отказ | — | `false_refusal` (ответ в базе был, модель отказалась) | f |
-| false | дан | — | `hallucination_unanswerable` | f |
-| false | отказ | — | `correct_refusal` (отказ — правильное поведение) | p |
 
-Для примеров с отказом клеймы не извлекаются; вместо этого судья проверяет answerability напрямую: ищет ответ на сам вопрос и решает, был ли отказ оправдан.
+Categories — product of two axes:
+| answerable | model response | grounded | category | recommendation |
+|------------|---------------|----------|----------|----------------|
+| true | given | true | `correct` | p |
+| true | given | false | `hallucination_contradicts` (or `partial`) | f |
+| true | refusal | — | `false_refusal` (answer was in knowledge base, model refused) | f |
+| false | given | — | `hallucination_unanswerable` | f |
+| false | refusal | — | `correct_refusal` (refusal is correct behavior) | p |
 
-### 3.3 Annotation (решения человека, append-only)
+For refusal examples, claims are not extracted; instead the judge checks answerability directly: searches for an answer to the question itself and decides whether the refusal was justified.
+
+### 3.3 Annotation (human decisions, append-only)
+
 ```json
-{"example_id": "ex_0001", "label": "p|f|s", "note": "..." | null,
- "agreed_with_agent": true, "undone": false, "ts": "...",
- "annotator": "artem", "elapsed_ms": 2400}
+{"example_id": "ex_0001", "label": "p", "agreed_with_agent": true, "annotator": ""}
 ```
-Undo реализуется не удалением, а записью события `{"undone": true, ...}` — лог остаётся честным, эффективное состояние = последняя не-отменённая запись по example_id.
 
-### 3.4 lazy.yaml (конфиг)
+Undo is implemented not via deletion, but by writing an event `{"undone": true, ...}` — the log stays honest, effective state = last non-undone entry per example_id.
+
+### 3.4 lazy.yaml (config)
+
 ```yaml
 project: myproject
-task: rag_faithfulness          # v1. Заложены: classification (без ретривера, кейс 5 из §1.1), llm_answers — после v1
+task: rag_faithfulness          # v1. Reserved: classification (no retriever, use case 5 from §1.1), llm_answers — post-v1
 retriever:
-  kind: qdrant                  # chroma|faiss|qdrant|pgvector|pinecone|weaviate|milvus|elastic|lancedb|docs_folder|chunks_file
-  # параметры зависят от kind — см. §5
-  top_k: 8
-embeddings:                     # нужен для faiss/pgvector/milvus/lancedb и docs_folder
-  provider: sentence_transformers | openai | voyage
-  model: "..."
+  kind: docs_folder
+  # parameters depend on kind — see §5
+embeddings:                     # needed for faiss/pgvector/milvus/lancedb and docs_folder
+  provider: sentence_transformers
+  model: all-MiniLM-L6-v2
+ingest:
+  question: query             # column names in source data
+  answer: response
 llm:
+  provider: anthropic           # anthropic | openai | openai_compatible (Ollama/vLLM/LM Studio/Together/…)
   judge_model: claude-haiku-4-5
   escalation_model: claude-opus-4-8
-  escalation_threshold: 0.7     # confidence ниже — пересмотр старшей моделью
+  escalation_threshold: 0.7     # confidence below — re-review by senior model
   use_batch_api: true
-  max_budget_usd: 10.0          # стоп-кран: precheck прерывается при превышении
+  max_budget_usd: 10.0          # kill switch: precheck stops on exceeding
 export:
   formats: [jsonl, csv]
 ```
-API-ключ — только `ANTHROPIC_API_KEY` из окружения (BYO-key), в конфиг не пишется никогда.
 
----
+API key — only `ANTHROPIC_API_KEY` from the environment (BYO-key), never written to config.
 
-## 4. Этапы пайплайна
+## 4. Pipeline Stages
 
-### 4.1 `lazy init` — диалоговый агент настройки (этапы INGEST + SETUP одним разговором)
+### 4.1 `lazy init` — setup dialog agent (INGEST + SETUP stages in one conversation)
 
-Не анкета, а **диалог, который ведёт агент**. Принцип: *агент предлагает, а не допрашивает* — никаких пустых «что хочешь?»; агент сначала сам смотрит на материал, потом предлагает конкретные варианты под то, что увидел. Человек отвечает свободным текстом («мне надо понять, где бот врёт клиентам») или тыкает в номер опции — LLM интерпретирует и то и другое.
+Not a questionnaire, but a **dialog led by the agent**. Principle: *agent offers, not interrogates* — no empty «what do you want?»; the agent first looks at the material, then offers concrete options based on what it sees. The human responds in free text («I need to know where the bot lies to customers») or picks an option number — the LLM interprets both.
 
-Устройство: LLM-диалог (Opus 4.8) с небольшим набором tools + **конечный автомат под капотом**. Разговорная форма свободная, но у диалога есть обязательные стадии-выходы, и агент ведёт к цели, а не болтает:
+Design: LLM dialog (Opus 4.8) with a small tool set + **state machine under the hood**. The conversation form is free, but the dialog has mandatory output stages, and the agent leads toward the goal instead of chatting:
 
 ```
-[источник данных] → [маппинг схемы] → [валидация/дедуп] → [задача]
-   → [гайдлайны утверждены] → [база подключена и проверена] → [смета] → lazy.yaml
+[data source] → [schema mapping] → [validation/dedup] → [task]
+   → [guidelines approved] → [knowledge base connected and verified] → [estimate] → lazy.yaml
 ```
 
-Tools агента-настройщика: `peek_file` (заголовки + сэмпл строк), `list_dir`, `run_ingest` (валидация+дедуп, возвращает отчёт), `test_retriever` (подключение + 1 пробный поиск), `estimate_cost` (count_tokens на сэмпле), `write_config`, `write_guidelines`.
+Wizard agent tools: `peek_file` (headers + sample rows), `list_dir`, `run_ingest` (validation+dedup, returns report), `test_retriever` (connection + 1 probe search), `estimate_cost` (count_tokens on sample), `write_config`, `write_guidelines`.
 
-Поведение по стадиям:
-1. **Источник**: человек кидает путь — агент сам читает заголовки и сэмпл и говорит, что видит («это логи RAG-а: вопросы, ответы, извлечённые чанки»).
-2. **Задача — опции из материала, не из фиксированного меню**: агент предлагает 2–4 варианта, релевантных именно этим данным (faithfulness / релевантность / фильтрация под SFT), с рекомендацией. Свободный ответ («где бот врёт») сводится к задаче агентом.
-3. **Маппинг схемы**: предложение («`query` → question, `response` → answer — верно?»), человек подтверждает или поправляет словами.
-4. **Валидация + дедуп**: пустые/битые строки, точные и near-дубли; отчёт «принято 480 из 500, вот почему отброшены» → `data/ingest_report.md`.
-5. **Гайдлайны**: из описания задачи генерируется `GUIDELINES.md` (позитив/негатив, пограничные случаи, примеры); человек читает и утверждает, файл открыт для правки.
-6. **База знаний**: выбор retriever kind, параметры, **обязательный вопрос про эмбеддинг-модель** там, где вектор запроса строим мы. Smoke-тест сразу, с показом реальных результатов («нашёл 8 чанков — похоже на вашу базу?»).
-7. **Смета**: примерные токены и $ на precheck; подтверждение → `lazy.yaml`.
+Stage behavior:
+1. **Source**: human provides a path — agent reads headers and sample and says what it sees («this is RAG logs: questions, answers, retrieved chunks»).
+2. **Task — options from the material, not a fixed menu**: agent offers 2–4 options relevant to this specific data (faithfulness / relevance / SFT filtering), with a recommendation. Free-form response («where the bot lies») is resolved to a task by the agent.
+3. **Schema mapping**: suggestion («`query` → question, `response` → answer — correct?»), human confirms or corrects in words.
+4. **Validation + dedup**: empty/broken rows, exact and near-duplicates; report «accepted 480 of 500, here's why rejected» → `data/ingest_report.md`.
+5. **Guidelines**: from the task description, `GUIDELINES.md` is generated (positive/negative, edge cases, examples); human reads and approves, the file is open for editing.
+6. **Knowledge base**: choice of retriever kind, parameters, **mandatory embedding model question** where we build the query vector. Smoke test immediately, showing real results («found 8 chunks — does this look like your database?»).
+7. **Estimate**: approximate tokens and $ for precheck; confirmation → `lazy.yaml`.
 
-Устойчивость к ошибкам — часть диалога: если smoke-тест базы упал, агент не падает с трейсбеком, а предлагает варианты («не достучался до Qdrant — проверить порт? или перейдём на режим „папка с документами“?»); можно вернуться на любую стадию («давай поменяем задачу»). Каждая пройденная стадия фиксируется на диске — прерванный `lazy init` продолжается с места остановки.
+Error resilience is part of the dialog: if the knowledge base smoke test fails, the agent doesn't crash with a traceback but offers options («can't reach Qdrant — check port? or switch to "folder of documents" mode?»); you can go back to any stage («let's change the task»). Each completed stage is persisted to disk — interrupted `lazy init` resumes from the stopping point.
 
-Граница ума: LLM-диалог существует **только** на этапе настройки, где есть неопределённость. Его единственный результат — те же `lazy.yaml` + `GUIDELINES.md`; дальше precheck и TUI работают детерминированно, без агентности. Технически это tool-use-цикл на официальном SDK (tool runner), не фреймворк.
+Intelligence boundary: LLM dialog exists **only** at the setup stage, where there is uncertainty. Its sole output is the same `lazy.yaml` + `GUIDELINES.md`; after that, precheck and TUI run deterministically, without agency. Technically it's a tool-use loop on the official SDK (tool runner), not a framework.
 
-### 4.2 `lazy check` — факт-чек (PRECHECK)
-Для каждого примера:
-1. **Claims**: ответ → список атомарных проверяемых утверждений (1 вызов, structured output). Ответ-отказ («в документации этого нет») помечается `is_refusal` и клеймов не имеет.
-2. **Retrieve**: для каждого клейма — поиск в базе. Свой запрос шире, чем у проверяемого RAG-а: (а) исходный вопрос, (б) переформулировка клейма как запроса, объединение результатов, top_k=8. Это снижает наследование слепых пятен проверяемого ретривера.
-3. **Verify**: клейм + найденные чанки → `supported/contradicted/not_found` + цитаты-доказательства (1 вызов на пример — все клеймы батчем в одном промпте).
-4. **Aggregate**: детерминированная логика (не LLM) сводит статусы клеймов в вердикт по таблице из §3.2 + confidence.
-5. **Escalate**: если confidence < порога — пересмотр Opus 4.8 (полный контекст, свежий взгляд), флаг `escalated: true`.
+### 4.2 `lazy check` — fact-check (PRECHECK)
 
-Механика:
-- **Batch API** (50% скидка) — режим по умолчанию: этап 1 всем корпусом → этап 3 всем корпусом. Синхронный режим — флаг `--sync` для маленьких датасетов/отладки.
-- **Prompt caching**: системный промпт судьи + GUIDELINES.md — стабильный кэшируемый префикс, переменная часть (пример) — после брейкпоинта.
-- **Идемпотентность**: verdicts.jsonl дописывается по мере готовности; повторный `lazy check` пропускает уже проверенные id (`--force` для пересчёта).
-- **Стоп-кран по бюджету**: суммарная стоимость считается на лету, при превышении `max_budget_usd` — пауза с вопросом.
-- Прогресс: rich progress bar, в конце сводка (сколько p/f рекомендаций, средний confidence, сколько эскалаций, итоговая стоимость).
+For each example:
+1. **Claims**: answer → list of atomic verifiable claims (1 call, structured output). Refusal answer («this is not in the documentation») is marked `is_refusal` and has no claims.
+2. **Retrieve**: for each claim — search in knowledge base. Own query is broader than the evaluated RAG's: (a) original question, (b) claim rephrased as a query, results merged, top_k=8. This reduces inheriting blind spots of the evaluated retriever.
+3. **Verify**: claim + found chunks → `supported/contradicted/not_found` + evidence citations (1 call per example — all claims batched in one prompt).
+4. **Aggregate**: deterministic logic (not LLM) maps claim statuses to a verdict per the table in §3.2 + confidence.
+5. **Escalate**: if confidence < threshold — re-review by Opus 4.8 (full context, fresh look), flag `escalated: true`.
 
-### 4.3 `lazy review` — TUI-ревью
-Порядок показа: **сомнительные первыми** (сортировка по confidence по возрастанию), уверенные — в конце. Флаг `--order random|confidence|original`.
+Mechanics:
+- **Batch API** (50% discount) — default mode: stage 1 on entire corpus → stage 3 on entire corpus. Sync mode — flag `--sync` for small datasets/debugging.
+- **Prompt caching**: judge's system prompt + GUIDELINES.md — stable cacheable prefix, variable part (example) — after breakpoint.
+- **Idempotency**: verdicts.jsonl is appended as ready; re-running `lazy check` skips already-checked ids (`--force` for recalculation).
+- **Budget kill switch**: total cost is computed on the fly; on exceeding `max_budget_usd` — pause with question.
+- Progress: rich progress bar, summary at end (how many p/f recommendations, average confidence, how many escalations, total cost).
 
-Карточка (textual):
+### 4.3 `lazy review` — TUI review
+
+Display order: **doubtful first** (sorted by confidence ascending), confident — at the end. Flag `--order random|confidence|original`.
+
+Card (textual):
+
 ```
-┌ myproject ── 42/480 ── p:31 f:8 s:3 ── согласие с агентом: 92% ─────────┐
-│                                                                          │
-│ ВОПРОС                                                                   │
-│ Какой лимит запросов у API?                                              │
-│                                                                          │
-│ ОТВЕТ RAG-а                                                              │
-│ Лимит составляет 1000 запросов в час, при превышении вернётся 429.       │
-│                                                                          │
-│ ─── АГЕНТ: рекомендует [f]  ── confidence 0.62 ── (эскалировано) ──      │
-│ Первое утверждение противоречит базе: в доках лимит 600/час.             │
-│                                                                          │
-│  ✗ «лимит 1000 запросов в час» — ПРОТИВОРЕЧИТ                           │
-│    ▸ doc_42: «...rate limit is 600 requests per hour...»                 │
-│  ✓ «при превышении вернётся 429» — ПОДТВЕРЖДЕНО                          │
-│    ▸ doc_42: «...returns HTTP 429 Too Many Requests...»                  │
-│                                                                          │
-├──────────────────────────────────────────────────────────────────────────┤
-│ [p] позитив  [f] негатив  [s] skip  [u] undo  [n] заметка                │
-│ [c] контекст RAG-а  [g] гайдлайны  [h] скрыть вердикт  [q] выход         │
-└──────────────────────────────────────────────────────────────────────────┘
+┌ myproject ── 42/480 ── p:31 f:8 s:3 ── agent agreement: 92% ─────────────────┐
+│                                                                                │
+│ QUESTION                                                                       │
+│ What is the API rate limit?                                                    │
+│                                                                                │
+│ RAG RESPONSE                                                                   │
+│ The limit is 1000 requests per hour; exceeding it returns 429.                 │
+│                                                                                │
+│ ─── AGENT: recommends [f]  ── confidence 0.62 ── (escalated) ──               │
+│ First claim contradicts the knowledge base: docs say limit is 600/hour.        │
+│  ✗ «limit 1000 requests per hour» — CONTRADICTS                               │
+│    ▸ pricing.md: «Basic plan: 600 req/hour»                                    │
+│  ✓ «exceeding returns 429» — CONFIRMED                                         │
+│    ▸ rate-limits.md: «HTTP 429 on exceeding»                                  │
+│                                                                                │
+│ [p] positive  [f] negative  [s] skip  [u] undo  [n] note                       │
+│ [c] RAG context  [g] guidelines  [h] hide verdict  [q] exit                    │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
-- `p`/`f`/`s` — решение + автопереход к следующему. Skip обязателен с заметкой (скип — сигнал о дырке в гайдлайнах).
-- `u` — undo (стек в рамках сессии + событие в лог).
-- `n` — заметка к текущему примеру.
-- `c` — развернуть контекст, который использовал проверяемый RAG (если был в данных).
-- `h` — режим «слепой разметки»: вердикт агента скрыт до нажатия решения (борьба с anchoring; также используется для self-check).
-- `q` — выход; resume при следующем запуске автоматически.
-- **Self-check**: случайные 10% уже размеченных примеров через N дней предлагаются повторно вслепую (`lazy review --self-check`) — согласие с самим собой = прокси intra-annotator agreement.
 
-### 4.4 `lazy export` — выдача
-- `out/goldset.jsonl` — итог: пример + вердикт агента + метка человека + заметки. Шапка-запись `_meta`: дата, версия инструмента, хэш GUIDELINES.md, статистика, конфиг судьи — датасет самоописанный и воспроизводимый.
-- Форматы: JSONL (всегда), CSV, HuggingFace `datasets` (`save_to_disk` / push в hub по флагу).
-- `out/report.md`: сколько p/f/s; матрица агент×человек и % согласия (общий и по бакетам confidence — основа для будущей авторазметки уверенных); список разногласий с заметками; список скипов; стоимость; время на пример.
-- `lazy export --disagreements` — отдельный файл только с разногласиями (материал для калибровки судьи).
+- `p`/`f`/`s` — decision + auto-advance to next. Skip is mandatory with a note (skip = signal of a hole in guidelines).
+- `u` — undo (stack within session + event in log).
+- `n` — note for the current example.
+- `c` — expand the context used by the evaluated RAG (if present in the data).
+- `h` — «blind annotation» mode: agent verdict hidden until decision is made (combat anchoring; also used for self-check).
+- `q` — exit; resume on next launch automatically.
+- **Self-check**: random 10% of already-labeled examples after N days are presented again blindly (`lazy review --self-check`) — agreement with oneself = proxy for intra-annotator agreement.
 
----
+### 4.4 `lazy export` — output
 
-## 5. Слой ретриверов
+- `out/goldset.jsonl` — final: example + agent verdict + human label + notes. Header record `_meta`: date, tool version, GUIDELINES.md hash, statistics, judge config — the dataset is self-described and reproducible.
+- Formats: JSONL (always), CSV, HuggingFace `datasets` (`save_to_disk` / push to hub via flag).
+- `out/report.md`: how many p/f/s; agent×human matrix and % agreement (overall and per confidence bucket — basis for future auto-labeling of confident examples); list of disagreements with notes; list of skips; cost; time per example.
+- `lazy export --disagreements` — separate file with disagreements only (material for judge calibration).
 
-### 5.1 Контракт
+## 5. Retriever Layer
+
+### 5.1 Contract
+
 ```python
 class Chunk(BaseModel):
     text: str
-    source: str          # id/имя документа
-    score: float | None
+    source: str          # id/document name
+    score: float | None = None
 
 class Retriever(Protocol):
     def search(self, query: str, top_k: int) -> list[Chunk]: ...
-    def healthcheck(self) -> str: ...   # человекочитаемое «подключился, в базе ~N векторов»
+    def healthcheck(self) -> str: ...   # human-readable «connected, ~N vectors in database»
 ```
-Один **контрактный тест** гоняется по всем адаптерам (моки клиентов + опциональные интеграционные через docker-compose для chroma/qdrant/pgvector/elastic/milvus/weaviate).
 
-### 5.2 Адаптеры (все сразу, extras-зависимости)
-| kind | зависимость | эмбеддинг запроса | конфиг |
-|---|---|---|---|
-| `chroma` | `chromadb` | обычно встроен в коллекцию; иначе наш | `path`/`host`, `collection` |
-| `faiss` | `faiss-cpu` | **наш (обязателен)** | `index_path`, `mapping_path` (id→текст) |
-| `qdrant` | `qdrant-client` | наш | `url`, `api_key?`, `collection` |
-| `pgvector` | `psycopg` | наш | `dsn`, `table`, `text_col`, `vec_col` |
-| `pinecone` | `pinecone` | наш | `api_key`, `index`, `namespace?` |
-| `weaviate` | `weaviate-client` | часто встроен (vectorizer); иначе наш | `url`, `api_key?`, `collection` |
-| `milvus` | `pymilvus` | наш | `uri`, `collection`, поля |
-| `elastic` | `elasticsearch`/`opensearch-py` | наш для kNN; **BM25 не требует** | `url`, `index`, `mode: knn|bm25|hybrid` |
-| `lancedb` | `lancedb` | наш | `uri`, `table` |
-| `docs_folder` | — (chroma под капотом) | наш | `path`, `glob`, чанкер (по умолчанию ~500 ток., overlap 50) |
-| `chunks_file` | — | наш (in-memory) или BM25 | `path` (JSONL: `{text, source}`) |
+One **contract test** runs against all adapters (mocked clients + optional integration via docker-compose for chroma/qdrant/pgvector/elastic/milvus/weaviate).
 
-`embeddings.py`: sentence-transformers (локально, дефолт для docs_folder), OpenAI, Voyage — по конфигу; человек указывает ту модель, которой строился его индекс. Elastic/bm25 и chunks_file+bm25 — путь «вообще без эмбеддингов».
+### 5.2 Adapters (all at once, extras dependencies)
 
----
+| kind | dependency | query embedding | config |
+|------|-----------|----------------|--------|
+| `chroma` | `chromadb` | usually built into collection; otherwise ours | `path`/`host`, `collection` |
+| `faiss` | `faiss-cpu` | **ours (required)** | `index_path`, `mapping_path` (id→text) |
+| `qdrant` | `qdrant-client` | ours | `url`, `api_key?`, `collection` |
+| `pgvector` | `psycopg` | ours | `dsn`, `table`, `text_col`, `vec_col` |
+| `pinecone` | `pinecone` | ours | `api_key`, `index`, `namespace?` |
+| `weaviate` | `weaviate-client` | often built-in (vectorizer); otherwise ours | `url`, `api_key?`, `collection` |
+| `milvus` | `pymilvus` | ours | `uri`, `collection`, fields |
+| `elastic` | `elasticsearch`/`opensearch-py` | ours for kNN; **BM25 doesn't need it** | `url`, `index`, `mode: knn\|bm25\|hybrid` |
+| `lancedb` | `lancedb` | ours | `uri`, `table` |
+| `docs_folder` | — (chroma under the hood) | ours | `path`, `glob`, chunker (default ~500 tok., overlap 50) |
+| `chunks_file` | — | ours (in-memory) or BM25 | `path` (JSONL: `{text, source}`) |
 
-## 6. LLM-слой
+`embeddings.py`: sentence-transformers (local, default for docs_folder), OpenAI, Voyage — per config; human specifies the model used to build their index. Elastic/bm25 and chunks_file+bm25 — path «no embeddings at all».
 
-- Модели: судья `claude-haiku-4-5`, эскалация `claude-opus-4-8` (обе — переопределяемы в конфиге).
-- **Structured outputs**: `client.messages.parse()` с pydantic-схемами (`ClaimsExtraction`, `ClaimVerification`) — валидный JSON гарантирован, ретраи парсинга не нужны.
-- **Batch API** для массового precheck (`client.messages.batches.*`), результаты матчатся по `custom_id = example_id`.
-- **Prompt caching**: `cache_control` на системном промпте судьи (включает GUIDELINES.md).
-- Обработка ошибок: типизированные исключения SDK, экспоненциальный ретрай на 429/5xx (SDK-шный), учёт `usage` каждого ответа в счётчике стоимости.
-- BYO-key: `ANTHROPIC_API_KEY` из окружения; при отсутствии — понятное сообщение, как получить ключ.
-- **BYO-provider** (добавлено 2026-07-11): `llm.provider: anthropic | openai | openai_compatible`. Все клиенты реализуют один протокол `parse()/count_tokens()` — судья не знает, кто под ним. OpenAI: structured outputs через `chat.completions.parse`, кэш автоматический, дефолт судьи gpt-5.4-mini + эскалация gpt-5.4. `openai_compatible` (Ollama/vLLM/LM Studio/Together/DeepSeek/OpenRouter): `base_url` + явный `judge_model`, цена из конфига (локально $0), fallback для серверов без строгих structured outputs (схема в промпте + pydantic-валидация с ретраем), эскалация по умолчанию выключена. Batch API реализован только для anthropic (остальные — синхронно); смета не-anthropic — эвристика символов.
-- Никаких агентских фреймворков: judge — детерминированный пайплайн из 2 LLM-вызовов на пример + чистые функции.
+## 6. LLM Layer
 
----
+- Models: judge `claude-haiku-4-5`, escalation `claude-opus-4-8` (both overridable in config).
+- **Structured outputs**: `client.messages.parse()` with pydantic schemas (`ClaimsExtraction`, `ClaimVerification`) — valid JSON guaranteed, no parse retries needed.
+- **Batch API** for bulk precheck (`client.messages.batches.*`), results matched by `custom_id = example_id`.
+- **Prompt caching**: `cache_control` on judge's system prompt (includes GUIDELINES.md).
+- Error handling: typed SDK exceptions, exponential retry on 429/5xx (SDK's own), `usage` tracking per response in cost counter.
+- BYO-key: `ANTHROPIC_API_KEY` from environment; if absent — clear message on how to get a key.
+- **BYO-provider** (added 2026-07-11): `llm.provider: anthropic | openai | openai_compatible`. All clients implement a single protocol `parse()/count_tokens()` — the judge doesn't know who's underneath. OpenAI: structured outputs via `chat.completions.parse`, automatic caching, default judge gpt-5.4-mini + escalation gpt-5.4. `openai_compatible` (Ollama/vLLM/LM Studio/Together/DeepSeek/OpenRouter): `base_url` + explicit `judge_model`, price from config (local $0), fallback for servers without strict structured outputs (schema in prompt + pydantic validation with retry), escalation disabled by default. Batch API implemented only for anthropic (rest — sync); non-anthropic estimate — character heuristic.
+- No agent frameworks: judge is a deterministic pipeline of 2 LLM calls per example + pure functions.
 
-## 7. Этапы реализации
+## 7. Implementation Milestones
 
-**M1 — ядро (working skeleton)** ✅ 2026-07-11: schemas, config, `chunks_file` + `docs_folder` ретриверы (BM25), judge (claims→verify→aggregate, sync-режим), TUI с p/f/s/u/resume/атомарной записью, export в JSONL. Весь путь init→check→review→export прогнан на демо.
+**M1 — core (working skeleton)** ✅ 2026-07-11: schemas, config, `chunks_file` + `docs_folder` retrievers (BM25), judge (claims→verify→aggregate, sync mode), TUI with p/f/s/u/resume/atomic write, export to JSONL. Full init→check→review→export path run on demo.
 
-**M2 — все базы** ✅ 2026-07-11: 9 адаптеров (chroma/faiss/qdrant/pgvector/pinecone/weaviate/milvus/elastic/lancedb), слой эмбеддингов (sentence_transformers/openai/voyage), extras-зависимости, юнит-тесты парсеров, docker-compose. ⚠ против живых сервисов не гонялось — проверить при первом реальном подключении.
+**M2 — all databases** ✅ 2026-07-11: 9 adapters (chroma/faiss/qdrant/pgvector/pinecone/weaviate/milvus/elastic/lancedb), embedding layer (sentence_transformers/openai/voyage), extras dependencies, unit tests for parsers, docker-compose. ⚠ not tested against live services — verify on first real connection.
 
-**M3 — масштаб и деньги** ✅ 2026-07-11: Batch API (три фазы: клеймы → верификация → эскалация, 50% скидка, дефолт для ≥5 примеров), prompt caching, смета `lazy check --dry-run`, стоп-кран бюджета, идемпотентный re-check. ⚠ живой Batch-прогон не проверен (нет ключа в окружении).
+**M3 — scale and cost** ✅ 2026-07-11: Batch API (three phases: claims → verification → escalation, 50% discount, default for ≥5 examples), prompt caching, estimate `lazy check --dry-run`, budget kill switch, idempotent re-check. ⚠ live Batch run not verified (no key in environment).
 
-**M4 — качество разметки** ✅ 2026-07-11: диалоговый агент `lazy init --chat` (tool-use-цикл + конечный автомат стадий), self-check (`lazy review --self-check`, intra-agreement в отчёте), слепой режим, agreement по бакетам confidence, `--pairs` (заготовки DPO), `--disagreements`, HF-экспорт, `lazy add` (дозагрузка с дедупом — кейс еженедельного аудита).
+**M4 — annotation quality** ✅ 2026-07-11: dialog agent `lazy init --chat` (tool-use loop + stage state machine), self-check (`lazy review --self-check`, intra-agreement in report), blind mode, agreement per confidence buckets, `--pairs` (DPO templates), `--disagreements`, HF export, `lazy add` (append with dedup — weekly audit use case).
 
-**M5 — polish** ✅ 2026-07-11: README, демо-датасет в репо, 56 тестов. Осталось на потом: гифка, публикация в PyPI.
+**M5 — polish** ✅ 2026-07-11: README, demo dataset in repo, 56 tests. Left for later: gif, PyPI publication.
 
-Непроверенное живьём (нужен ANTHROPIC_API_KEY): реальные вызовы judge/batch/wizard; адаптеры против реальных баз.
+Not verified live (needs ANTHROPIC_API_KEY): real judge/batch/wizard calls; adapters against real databases.
 
----
+## 8. Risks and Solutions
 
-## 8. Риски и решения
+| Risk | Solution |
+|------|----------|
+| Judge inherits user's retriever blind spots | Own broader search (question + claim rephrasings); docs_folder mode indexes itself |
+| Anchoring bias | Citations instead of bare verdicts; blind mode `h`; % agreement in status bar; self-check |
+| Wrong embedding model → garbage search | Mandatory question in wizard + smoke test showing real results to human |
+| Cost spirals out of control | Estimate before run, live counter, `max_budget_usd`, Batch API + cache by default |
+| Crash mid-work | Append-only JSONL, atomic write (write-tmp+rename), resume everywhere |
+| Refusal answer labeled as error | Explicit `is_refusal` branch + «unanswerable refusal = correct» category |
+| 9 database clients bloat install | extras: `pressf[all]` / `[qdrant]` / … ; base install is lightweight |
+| Judge makes systematic errors | Disagreement report = dataset for calibrating judge prompts (self-improving loop) |
+| Setup dialog degenerates into chatter / loops | Stage state machine with mandatory exits; turn limit per stage; progress persisted to disk |
 
-| Риск | Решение |
-|---|---|
-| Судья наследует слепые пятна ретривера пользователя | Свой более широкий поиск (вопрос + переформулировки клеймов); режим docs_folder индексирует сам |
-| Anchoring bias | Цитаты вместо голых вердиктов; слепой режим `h`; % согласия в статусбаре; self-check |
-| Неверная эмбеддинг-модель → мусорный поиск | Обязательный вопрос в мастере + smoke-тест с показом реальных результатов человеку |
-| Стоимость выходит из-под контроля | Смета до запуска, счётчик на лету, `max_budget_usd`, Batch API + кэш по умолчанию |
-| Падение посреди работы | Append-only JSONL, атомарная запись (write-tmp+rename), resume везде |
-| Ответ-отказ размечается как ошибка | Явная ветка `is_refusal` + категория «отказ при unanswerable = correct» |
-| 9 клиентов баз раздувают установку | extras: `pressf[all]` / `[qdrant]` / … ; базовая установка лёгкая |
-| Судья ошибается системно | Отчёт разногласий = датасет для калибровки промптов судьи (self-improving loop) |
-| Диалог настройки уходит в болтовню / зацикливается | Конечный автомат стадий с обязательными выходами; лимит ходов на стадию; фиксация прогресса на диске | 
+## 9. Out of v1 Scope (deliberately)
 
----
-
-## 9. Вне скоупа v1 (осознанно)
-- Мультиаannotator-режим и Cohen's kappa между людьми (заложен `annotator` в схеме — включим позже).
-- Авторазметка уверенных примеров без человека (сначала накопим agreement-статистику).
-- Веб-интерфейс. Только терминал.
-- ~~Другие LLM-провайдеры~~ → OpenAI добавлен (см. §6); остальные — по запросу, тем же протоколом.
-- Оценка relevance/полноты ответа — v1 меряет только фактическую верность (faithfulness + answerability).
+- Multi-annotator mode and Cohen's kappa between humans (`annotator` field reserved in schema — enable later).
+- Auto-labeling confident examples without a human (accumulate agreement stats first).
+- Web interface. Terminal only.
+- ~~Other LLM providers~~ → OpenAI added (see §6); others — on request, same protocol.
+- Evaluating answer relevance/completeness — v1 measures only factual faithfulness (faithfulness + answerability).

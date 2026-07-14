@@ -1,5 +1,5 @@
-# Сервисы для интеграционных тестов адаптеров (tests/integration/).
-# Запуск: docker compose up -d && LAZY_INTEGRATION=1 pytest tests/integration
+# Services for adapter integration tests (tests/integration/).
+# Run: docker compose up -d && LAZY_INTEGRATION=1 pytest tests/integration
 version: "3.9"
 
 services:
