@@ -13,9 +13,52 @@ from ..schemas import (
     PairwiseCompareResult,
     PolicyCheckResult,
     SearchQualityResult,
+    TrajectoryResult,
     Verdict,
     VerificationResult,
 )
+
+
+def aggregate_trajectory_verdict(
+    *,
+    example_id: str,
+    result: TrajectoryResult,
+    judge_model: str,
+    escalated: bool,
+    cost_usd: float,
+    fail_on_inefficient: bool = False,
+) -> Verdict:
+    """Map trajectory findings to a normal PressF verdict with deterministic precedence.
+
+    A correct-but-wasteful run (trajectory_inefficient) passes by default; set
+    fail_on_inefficient to fail it too."""
+    findings = [step for step in result.steps if not step.ok]
+    kinds = {step.issue_kind for step in findings}
+    if "unsafe_action" in kinds:
+        category = "trajectory_unsafe"
+    elif kinds & {"fabricated_tool_result", "ignored_result", "wrong_arguments"}:
+        category = "trajectory_unfaithful"
+    elif not result.final_answer_ok:
+        category = "trajectory_wrong_answer"
+    elif not result.efficient or kinds & {"unnecessary_call", "loop"}:
+        category = "trajectory_inefficient"
+    else:
+        category = "trajectory_ok"
+    passing = {"trajectory_ok"} if fail_on_inefficient else {"trajectory_ok", "trajectory_inefficient"}
+    recommendation = "p" if category in passing else "f"
+    return Verdict(
+        example_id=example_id,
+        answerable=True,
+        grounded=category not in {"trajectory_unfaithful", "trajectory_wrong_answer"},
+        recommendation=recommendation,
+        category=category,
+        confidence=result.confidence,
+        reasoning=result.reasoning,
+        judge_model=judge_model,
+        escalated=escalated,
+        cost_usd=round(cost_usd, 6),
+        step_issues=result.steps,
+    )
 
 
 def _evidence_from_refs(refs, chunks: list[Chunk]) -> list[Evidence]:

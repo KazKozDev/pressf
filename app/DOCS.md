@@ -26,12 +26,13 @@ searching the docs, and quoting evidence — while you do only the fast part, ye
 get goldset-quality labels at a fraction of the cost, plus a number that tells you how far
 the judge can be trusted on its own.
 
-## Four kinds of evaluation
+## Five kinds of evaluation
 
 - **Truth Check** — Does the answer contradict or invent facts against your documents?
 - **Policy Check** — Does the answer break a rule your system must never break?
 - **Search Quality** — Did retrieval return enough context to answer at all?
 - **Compare Versions** — Is the new version better than the old one on the same questions?
+- **Agent Trajectory** — Did the agent take a sound path to the answer, or fabricate tool results, loop, or act unsafely?
 
 ## How trust is earned
 

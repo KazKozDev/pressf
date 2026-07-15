@@ -11,7 +11,7 @@ from pydantic import BaseModel
 
 from ..config import Project
 from ..io import write_jsonl_atomic
-from ..schemas import ContextChunk, DialogTurn, Example
+from ..schemas import ContextChunk, DialogTurn, Example, TrajectoryStep
 
 
 def _parse_dialog(value: Any) -> list[DialogTurn] | None:
@@ -39,6 +39,7 @@ class ColumnMapping(BaseModel):
     answer: str
     context: str | None = None
     dialog: str | None = None  #column with multi-way dialog (JSON-array {role, content})
+    trajectory: str | None = None
     id: str | None = None
 
 
@@ -80,8 +81,38 @@ def _parse_context(value: Any) -> list[ContextChunk] | None:
     return None
 
 
-def example_key(question: str, answer: str) -> tuple[str, str]:
-    return (_normalize(question), _normalize(answer))
+def _parse_trajectory(value: Any) -> list[TrajectoryStep] | None:
+    """Normalize native/trace trajectory input and assign stable one-based indices."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid trajectory JSON: {exc.msg}") from exc
+    if not isinstance(value, list):
+        raise ValueError("trajectory must be an array of steps")
+    try:
+        return [TrajectoryStep.model_validate({**step, "index": index})
+                for index, step in enumerate(value, 1)]
+    except Exception as exc:
+        raise ValueError(f"invalid trajectory: {exc}") from exc
+
+
+def example_key(
+    question: str, answer: str, trajectory: list[TrajectoryStep] | None = None
+) -> tuple[str, ...]:
+    """Deduplicate normal examples by Q/A and trajectories by their full visible execution."""
+    key: tuple[str, ...] = (_normalize(question), _normalize(answer))
+    if trajectory is None:
+        return key
+    trace = json.dumps(
+        [step.model_dump(mode="json") for step in trajectory],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return (*key, trace)
 
 
 def normalize_rows(
@@ -89,17 +120,26 @@ def normalize_rows(
     mapping: ColumnMapping,
     raw_file: str = "",
     *,
-    existing_keys: set[tuple[str, str]] | None = None,
+    existing_keys: set[tuple[str, ...]] | None = None,
     id_start: int = 1,
 ) -> IngestResult:
     """existing_keys/id_start - for additional loading (lazy add): dedup versus already
     downloaded examples and continuation of id numbering."""
     result = IngestResult()
-    seen: set[tuple[str, str]] = set(existing_keys or ())
+    seen: set[tuple[str, ...]] = set(existing_keys or ())
     for i, row in enumerate(rows, 1):
         if "_parse_error" in row:
             result.rejected.append((i, str(row["_parse_error"])))
             continue
+        #Trace exports can be mixed with regular rows; structural detection is deterministic.
+        if any(key in row for key in ("messages", "child_runs", "observations", "trajectory")):
+            from .traces import detect_trace_format, trace_to_row
+            detected = detect_trace_format(row)
+            parsed = trace_to_row(row)
+            if parsed is None:
+                result.rejected.append((i, f"{detected}: trajectory trace could not be parsed"))
+                continue
+            row = parsed
         dialog = _parse_dialog(row.get(mapping.dialog)) if mapping.dialog else None
         #from the dialogue we display question/answer: the last comment is user and the last answer is assistant
         if dialog:
@@ -116,26 +156,33 @@ def normalize_rows(
         if not answer:
             result.rejected.append((i, f"empty column «{mapping.answer}» (answer)"))
             continue
-        key = example_key(question, answer)
+        trajectory_value = row.get(mapping.trajectory) if mapping.trajectory else row.get("trajectory")
+        try:
+            trajectory = _parse_trajectory(trajectory_value)
+        except ValueError as exc:
+            result.rejected.append((i, str(exc)))
+            continue
+        key = example_key(question, answer, trajectory)
         if key in seen:
             result.duplicates += 1
             continue
         seen.add(key)
+        source_id_column = mapping.id or ("id" if row.get("_trace_format") and row.get("id") else None)
         ex_id = (
-            str(row[mapping.id])
-            if mapping.id and row.get(mapping.id)
+            str(row[source_id_column])
+            if source_id_column and row.get(source_id_column)
             else f"ex_{id_start + len(result.accepted):04d}"
         )
-        result.accepted.append(
-            Example(
-                id=ex_id,
-                question=question,
-                answer=answer,
-                context=_parse_context(row.get(mapping.context)) if mapping.context else None,
-                dialog=dialog,
-                meta={"source_row": i, "raw_file": raw_file},
-            )
-        )
+        result.accepted.append(Example(
+            id=ex_id,
+            question=question,
+            answer=answer,
+            context=_parse_context(row.get(mapping.context)) if mapping.context else None,
+            dialog=dialog,
+            trajectory=trajectory,
+            meta={"source_row": i, "raw_file": raw_file,
+                  **({"trace_format": row["_trace_format"]} if row.get("_trace_format") else {})},
+        ))
     return result
 
 

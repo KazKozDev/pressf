@@ -14,6 +14,7 @@ from ..io import write_jsonl_atomic
 
 
 def _build_records(project: Project) -> list[dict[str, Any]]:
+    cfg = project.load_config()
     verdicts = project.load_verdicts()
     annotations = project.effective_annotations()
     records: list[dict[str, Any]] = []
@@ -22,8 +23,7 @@ def _build_records(project: Project) -> list[dict[str, Any]]:
         if ann is None:
             continue  #unmarked ones do not go into the gold set
         v = verdicts.get(ex.id)
-        records.append(
-            {
+        record = {
                 "id": ex.id,
                 "question": ex.question,
                 "answer": ex.answer,
@@ -36,8 +36,11 @@ def _build_records(project: Project) -> list[dict[str, Any]]:
                 "agreed_with_agent": ann.agreed_with_agent,
                 "claims": [c.model_dump() for c in v.claims] if v else [],
                 "annotated_at": ann.ts.isoformat(),
-            }
-        )
+        }
+        if cfg.task == "agent_trajectory":
+            record["trajectory"] = [step.model_dump(mode="json") for step in ex.trajectory or []]
+            record["step_issues"] = [issue.model_dump(mode="json") for issue in v.step_issues or []] if v else []
+        records.append(record)
     return records
 
 

@@ -69,6 +69,7 @@ TOOLS: list[dict[str, Any]] = [
                 "question_col": {"type": "string"},
                 "answer_col": {"type": "string"},
                 "context_col": {"type": "string", "description": "Optional: column with chunks RAG-a"},
+                "trajectory_col": {"type": "string", "description": "Optional: native trajectory JSON column"},
                 "id_col": {"type": "string", "description": "Optional: column with id"},
             },
             "required": ["data_path", "question_col", "answer_col"],
@@ -127,6 +128,7 @@ TOOLS: list[dict[str, Any]] = [
             "type": "object",
             "properties": {
                 "project_name": {"type": "string"},
+                "task": {"type": "string", "description": "rag_faithfulness | policy_compliance | retrieval_quality | pairwise_compare | agent_trajectory"},
                 "llm_provider": {"type": "string", "description": "anthropic | openai | openai_compatible"},
                 "judge_model": {"type": "string"},
                 "base_url": {"type": "string", "description": "URL OpenAI-compatible server (Ollama/vLLM/...)"},
@@ -157,7 +159,8 @@ The first move is ALWAYS project_status: look at what is already on the disk bef
 Next, figure out the scenario. If it is obvious from the user's status and words, don't ask.
 act. If not, offer a choice (briefly, with a recommendation based on the situation):
 1. «There are bot logs: questions + answers» → main path: peek_file → run_ingest →
-   write_guidelines → test_retriever → judge's choice → finalize.
+   write_guidelines → test_retriever → judge's choice → finalize. For agent trajectories, select
+   agent_trajectory, ingest the trace format, write trajectory rules, and skip retriever testing.
    Next: lazy check → lazy review → lazy export.
 2. «There is a ready-made marked goldset» → judge calibration: run_ingest → import_labels →
    write_guidelines → test_retriever → finalize. Explain: lazy check will drive the judge away for the same reasons
@@ -251,7 +254,7 @@ class WizardEngine:
             cfg = self._existing_cfg
             lines.append(
                 f"lazy.yaml: yes - project «{cfg.project}», "
-                f"judge {cfg.llm.provider}/{cfg.llm.judge_model}, retriever {cfg.retriever.kind}"
+                f"judge {cfg.llm.provider}/{cfg.llm.judge_model}, retriever {cfg.retriever.kind if cfg.retriever else 'not required'}"
             )
         else:
             lines.append("lazy.yaml: no - the project is not configured")
@@ -307,15 +310,16 @@ class WizardEngine:
         question_col: str,
         answer_col: str,
         context_col: str | None = None,
+        trajectory_col: str | None = None,
         id_col: str | None = None,
     ) -> str:
         rows = load_rows(Path(data_path))
-        mapping = ColumnMapping(question=question_col, answer=answer_col, context=context_col, id=id_col)
+        mapping = ColumnMapping(question=question_col, answer=answer_col, context=context_col, trajectory=trajectory_col, id=id_col)
         result = run_ingest(self.project, rows, mapping, raw_file=data_path)
         if not result.accepted:
             raise ValueError("not a single valid example - check the column mapping")
         self.ingest_done = True
-        self._mapping = IngestConfig(question=question_col, answer=answer_col, context=context_col, id=id_col)
+        self._mapping = IngestConfig(question=question_col, answer=answer_col, context=context_col, trajectory=trajectory_col, id=id_col)
         self._first_question = result.accepted[0].question
         rejected = "; ".join(f"line{n}: {r}" for n, r in result.rejected[:5])
         return (
@@ -395,11 +399,16 @@ class WizardEngine:
     def _tool_finalize(
         self,
         project_name: str,
+        task: str | None = None,
         llm_provider: str | None = None,
         judge_model: str | None = None,
         base_url: str | None = None,
     ) -> str:
-        missing = [k for k, done in self.stages().items() if not done and k != "finalized"]
+        from .config import canonical_task
+
+        selected_task = canonical_task(task or (self._existing_cfg.task if self._existing_cfg else "rag_faithfulness"))
+        missing = [k for k, done in self.stages().items()
+                   if not done and k != "finalized" and not (selected_task == "agent_trajectory" and k == "retriever")]
         if missing:
             raise RuntimeError(f"cannot be completed: stages not completed{missing}")
         llm_kwargs = (self._existing_cfg.llm if self._existing_cfg else LLMConfig()).model_dump()
@@ -411,8 +420,8 @@ class WizardEngine:
             llm_kwargs["base_url"] = base_url
         cfg = ProjectConfig(
             project=project_name,
-            task=self._existing_cfg.task if self._existing_cfg else "rag_faithfulness",
-            retriever=self._retr_cfg,  # type: ignore[arg-type]
+            task=selected_task,
+            retriever=None if selected_task == "agent_trajectory" else self._retr_cfg,  # type: ignore[arg-type]
             embeddings=self._existing_cfg.embeddings if self._existing_cfg else None,
             ingest=self._mapping,
             llm=LLMConfig.model_validate(llm_kwargs),

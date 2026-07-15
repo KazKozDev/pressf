@@ -10,6 +10,7 @@ const Q_KEYS = ["question", "query", "input", "prompt", "text"] as const;
 const A_KEYS = ["answer", "output", "response", "generation", "completion", "text"] as const;
 const CTX_KEYS = ["context", "contexts", "documents", "retrieved", "retrieved_documents", "sources"] as const;
 const CHUNK_TEXT_KEYS = ["text", "page_content", "content", "document"] as const;
+const TRAJECTORY_KEYS = ["trajectory", "messages", "child_runs", "observations"] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -77,6 +78,13 @@ export function looksLikeTraces(rows: Record<string, unknown>[]): boolean {
     !("question" in row && "answer" in row)
   );
   return traceShaped.length >= Math.ceil(rows.length / 2);
+}
+
+// The renderer only needs this lightweight structural signal for its import
+// preview. Full conversion is intentionally left to `lazy init --traces`.
+export function looksLikeAgentTraces(rows: Record<string, unknown>[]): boolean {
+  if (!rows.length) return false;
+  return rows.some((row) => isRecord(row) && TRAJECTORY_KEYS.some((key) => key in row));
 }
 
 export function loadTraceRows(rows: Record<string, unknown>[]): Record<string, string>[] {

@@ -33,6 +33,8 @@ class LLMConfig(BaseModel):
     escalation_model: str = "claude-opus-4-8"
     escalation_threshold: float = 0.7
     use_batch_api: bool = True  #50% discount; for < batch_min_examples it is still sync
+    #agent_trajectory: a correct-but-wasteful run passes by default; set true to fail it too
+    trajectory_fail_on_inefficient: bool = False
     batch_min_examples: int = 5
     batch_poll_seconds: int = 20
     max_budget_usd: float = 10.0
@@ -66,6 +68,7 @@ class IngestConfig(BaseModel):
     question: str = "question"
     answer: str = "answer"
     context: str | None = None
+    trajectory: str | None = None
     id: str | None = None
 
 
@@ -97,13 +100,17 @@ class BotConfig(BaseModel):
 
 def canonical_task(task: str | None) -> str:
     task = task or "rag_faithfulness"
-    return {"search_quality": "retrieval_quality", "compare_versions": "pairwise_compare"}.get(task, task)
+    return {
+        "search_quality": "retrieval_quality",
+        "compare_versions": "pairwise_compare",
+        "agents": "agent_trajectory",
+    }.get(task, task)
 
 
 class ProjectConfig(BaseModel):
     project: str
     task: str = "rag_faithfulness"
-    retriever: RetrieverConfig
+    retriever: RetrieverConfig | None = None
     embeddings: EmbeddingsConfig | None = None
     ingest: IngestConfig | None = None
     llm: LLMConfig = Field(default_factory=LLMConfig)
@@ -113,6 +120,8 @@ class ProjectConfig(BaseModel):
     @model_validator(mode="after")
     def _canonical_task(self):
         self.task = canonical_task(self.task)
+        if self.task != "agent_trajectory" and self.retriever is None:
+            raise ValueError(f"task {self.task} requires retriever configuration")
         return self
 
 

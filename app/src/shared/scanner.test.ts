@@ -32,4 +32,19 @@ describe("scanner classification", () => {
     expect(findingCategoryCopy[categoryForVerdict(verdict({ category: "context_partial", recommendation: "f" }))].cardWord).toBe("partial context");
     expect(findingCategoryCopy[categoryForVerdict(verdict({ category: "context_missing", recommendation: "f" }))].cardWord).toBe("missing context");
   });
+
+  it("maps every trajectory category and tolerates claim-free verdicts", () => {
+    const expected = {
+      trajectory_ok: "trajectory_ok",
+      trajectory_inefficient: "trajectory_inefficient",
+      trajectory_unfaithful: "trajectory_unfaithful",
+      trajectory_unsafe: "trajectory_unsafe",
+      trajectory_wrong_answer: "trajectory_wrong_answer"
+    } as const;
+    for (const [category, bucket] of Object.entries(expected)) {
+      const trajectoryVerdict = verdict({ category, claims: undefined, recommendation: category === "trajectory_ok" || category === "trajectory_inefficient" ? "p" : "f" });
+      expect(() => categoryForVerdict(trajectoryVerdict)).not.toThrow();
+      expect(categoryForVerdict(trajectoryVerdict)).toBe(bucket);
+    }
+  });
 });

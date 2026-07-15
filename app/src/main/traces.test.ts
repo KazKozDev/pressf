@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { inspectDataFile, loadRows, parseContextChunks } from "./projectData.js";
-import { loadTraceRows, looksLikeTraces, traceToRow } from "./traces.js";
+import { loadTraceRows, looksLikeAgentTraces, looksLikeTraces, traceToRow } from "./traces.js";
 
 describe("traceToRow", () => {
   it("unrolls a LangSmith run export", () => {
@@ -49,6 +49,25 @@ describe("looksLikeTraces", () => {
 
   it("does not treat flat files with input/output columns plus question/answer as traces", () => {
     expect(looksLikeTraces([{ question: "q", answer: "a", input: "raw", output: "raw" }])).toBe(false);
+  });
+});
+
+describe("agent trajectory inspection", () => {
+  it("recognizes native trajectories and preselects their column", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pressf-agent-traces-"));
+    const file = path.join(dir, "native.jsonl");
+    writeFileSync(file, JSON.stringify({ id: "native-1", question: "Status?", answer: "Done.", trajectory: [{ kind: "answer", content: "Done." }] }) + "\n", "utf8");
+    expect(looksLikeAgentTraces(loadRows(file))).toBe(true);
+    expect(inspectDataFile(file).detected).toMatchObject({ id: "id", question: "question", answer: "answer", trajectory: "trajectory" });
+  });
+
+  it("recognizes OpenAI message logs without reimplementing their parse", () => {
+    const dir = mkdtempSync(path.join(tmpdir(), "pressf-agent-traces-"));
+    const file = path.join(dir, "openai.jsonl");
+    writeFileSync(file, JSON.stringify({ id: "chat-1", messages: [{ role: "user", content: "Status?" }, { role: "assistant", content: "Done." }] }) + "\n", "utf8");
+    const inspection = inspectDataFile(file);
+    expect(inspection.headers).toEqual(["id", "question", "answer", "trajectory"]);
+    expect(inspection.detected).toMatchObject({ question: "question", answer: "answer", trajectory: "trajectory" });
   });
 });
 

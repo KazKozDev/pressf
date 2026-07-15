@@ -27,12 +27,12 @@ def estimate_check(project: Project, llm_client, *, limit: int | None = None) ->
 
     Top-down evaluation is fair but rough: verify prompt depends on the ones found
     chunks, we count escalations using ESCALATION_RATE_GUESS."""
-    from ..retrievers import build_retriever
-    from . import gather_chunks
-
     cfg = project.load_config()
-    retriever = build_retriever(cfg.retriever, cfg.embeddings)
-    system = prompts.judge_system(project.load_guidelines())
+    system = (
+        prompts.task_system(cfg.task, project.load_guidelines())
+        if cfg.task == "agent_trajectory"
+        else prompts.judge_system(project.load_guidelines())
+    )
 
     existing = set(project.load_verdicts())
     todo = [ex for ex in project.load_examples() if ex.id not in existing]
@@ -43,17 +43,29 @@ def estimate_check(project: Project, llm_client, *, limit: int | None = None) ->
 
     sample = todo[:SAMPLE_SIZE]
     total = 0
-    for ex in sample:
-        total += llm_client.count_tokens(
-            model=cfg.llm.judge_model, system=system, user=prompts.claims_user(ex)
-        )
-        chunks = gather_chunks(retriever, ex.question, [], top_k=8)
-        total += llm_client.count_tokens(
-            model=cfg.llm.judge_model,
-            system=system,
-            user=prompts.verify_user(ex, ["statement for evaluation"] * 3, chunks),
-        )
-    avg_input = total // len(sample)
+    if cfg.task == "agent_trajectory":
+        for ex in sample:
+            total += llm_client.count_tokens(
+                model=cfg.llm.judge_model, system=system, user=prompts.agent_trajectory_user(ex)
+            )
+        avg_input = total // len(sample)
+    else:
+        from ..retrievers import build_retriever
+        from . import gather_chunks
+
+        assert cfg.retriever is not None
+        retriever = build_retriever(cfg.retriever, cfg.embeddings)
+        for ex in sample:
+            total += llm_client.count_tokens(
+                model=cfg.llm.judge_model, system=system, user=prompts.claims_user(ex)
+            )
+            chunks = gather_chunks(retriever, ex.question, [], top_k=8)
+            total += llm_client.count_tokens(
+                model=cfg.llm.judge_model,
+                system=system,
+                user=prompts.verify_user(ex, ["statement for evaluation"] * 3, chunks),
+            )
+        avg_input = total // len(sample)
 
     if cfg.llm.provider == "openai_compatible":
         inp = esc_inp = cfg.llm.price_input_per_mtok
@@ -66,7 +78,8 @@ def estimate_check(project: Project, llm_client, *, limit: int | None = None) ->
     else:
         inp, outp = PRICING.get(cfg.llm.judge_model, (1.0, 5.0))
         esc_inp, esc_outp = PRICING.get(cfg.llm.escalation_model, (5.0, 25.0))
-    per_example = avg_input / 1e6 * inp + 2 * OUTPUT_TOKENS_GUESS / 1e6 * outp
+    output_calls = 1 if cfg.task == "agent_trajectory" else 2
+    per_example = avg_input / 1e6 * inp + output_calls * OUTPUT_TOKENS_GUESS / 1e6 * outp
     per_escalation = (avg_input / 2) / 1e6 * esc_inp + OUTPUT_TOKENS_GUESS / 1e6 * esc_outp
     sync_usd = len(todo) * (per_example + ESCALATION_RATE_GUESS * per_escalation)
     return Estimate(

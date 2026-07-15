@@ -19,9 +19,10 @@ from ..schemas import (
     ExtractedClaims,
     Verdict,
     VerificationResult,
+    TrajectoryResult,
 )
 from . import CheckSummary, gather_chunks
-from .aggregate import aggregate_claims_verdict, aggregate_refusal_verdict
+from .aggregate import aggregate_claims_verdict, aggregate_refusal_verdict, aggregate_trajectory_verdict
 
 
 def _stage_b_item(
@@ -65,8 +66,8 @@ def run_check_batch(
     from ..retrievers import build_retriever
 
     cfg = project.load_config()
-    retriever = build_retriever(cfg.retriever, cfg.embeddings)
-    system = prompts.judge_system(project.load_guidelines())
+    retriever = build_retriever(cfg.retriever, cfg.embeddings) if cfg.retriever else None
+    system = prompts.task_system(cfg.task, project.load_guidelines())
     runner = BatchRunner(llm_client.anthropic, poll_seconds=cfg.llm.batch_poll_seconds)
     say = on_status or (lambda s: None)
 
@@ -82,6 +83,16 @@ def run_check_batch(
                 f"Missing context for {len(missing_context)} example(s): {sample}{suffix}. "
                 "Map the context column and ingest again; PressF will not substitute its own search."
             )
+    if cfg.task == "agent_trajectory":
+        missing_trajectory = [ex.id for ex in examples if ex.trajectory is None]
+        if missing_trajectory:
+            sample = ", ".join(missing_trajectory[:5])
+            suffix = "…" if len(missing_trajectory) > 5 else ""
+            raise ValueError(
+                "Agent Trajectory requires a recorded trajectory for every example. "
+                f"Missing trajectory for {len(missing_trajectory)} example(s): {sample}{suffix}. "
+                "Ingest native traces, OpenAI message logs, LangSmith, or Langfuse exports."
+            )
     todo = [ex for ex in examples if ex.id not in existing]
     summary = CheckSummary(skipped_existing=len(examples) - len(todo))
     if only_ids is not None:
@@ -91,6 +102,53 @@ def run_check_batch(
     if not todo:
         return summary
     by_id = {ex.id: ex for ex in todo}
+
+    if cfg.task == "agent_trajectory":
+        say(f"trajectory evaluation ({len(todo)} examples)")
+        first = runner.run(
+            [BatchItem(custom_id=ex.id, model=cfg.llm.judge_model, system=system,
+                       user=prompts.agent_trajectory_user(ex), schema=TrajectoryResult) for ex in todo],
+            on_status=say,
+        )
+        verdicts: dict[str, Verdict] = {}
+        for ex in todo:
+            out = first.get(ex.id)
+            if out is None or out.parsed is None:
+                say(f"[warn] {ex.id}: trajectory evaluation failed ({out.error if out else 'no result'}) - skipped, no verdict written")
+                continue
+            verdicts[ex.id] = aggregate_trajectory_verdict(
+                example_id=ex.id, result=out.parsed, judge_model=cfg.llm.judge_model,
+                escalated=False, cost_usd=out.cost_usd,
+                fail_on_inefficient=cfg.llm.trajectory_fail_on_inefficient,
+            )
+        escalate_ids = [
+            eid for eid, verdict in verdicts.items()
+            if verdict.confidence < cfg.llm.escalation_threshold
+            and cfg.llm.escalation_model and cfg.llm.escalation_model != cfg.llm.judge_model
+        ]
+        if escalate_ids:
+            second = runner.run(
+                [BatchItem(custom_id=eid, model=cfg.llm.escalation_model, system=system,
+                           user=prompts.agent_trajectory_user(by_id[eid]), schema=TrajectoryResult)
+                 for eid in escalate_ids],
+                on_status=say,
+            )
+            for eid in escalate_ids:
+                out = second.get(eid)
+                if out is not None and out.parsed is not None:
+                    verdicts[eid] = aggregate_trajectory_verdict(
+                        example_id=eid, result=out.parsed, judge_model=cfg.llm.escalation_model,
+                        escalated=True, cost_usd=verdicts[eid].cost_usd + out.cost_usd,
+                        fail_on_inefficient=cfg.llm.trajectory_fail_on_inefficient,
+                    )
+        for eid, verdict in verdicts.items():
+            append_jsonl(project.verdicts_path, verdict)
+            summary.checked += 1
+            summary.cost_usd += verdict.cost_usd
+            summary.escalated += int(verdict.escalated)
+            summary.recommendations[verdict.recommendation] = summary.recommendations.get(verdict.recommendation, 0) + 1
+        summary.cost_usd = round(summary.cost_usd, 4)
+        return summary
 
     #── Phase A: stamps ──────────────────────── ────────────────────────
     say(f"phase A: extraction of stamps ({len(todo)}examples)")
@@ -107,7 +165,7 @@ def run_check_batch(
     for ex in todo:
         out = a_out.get(ex.id)
         if out is None or out.parsed is None:
-            say(f"[warn] {ex.id}: phase A failed ({out.error if out else 'no result'}) - pass")
+            say(f"[warn] {ex.id}: phase A failed ({out.error if out else 'no result'}) - skipped, no verdict written")
             continue
         extracted[ex.id] = out.parsed
         costs[ex.id] = out.cost_usd
@@ -132,7 +190,7 @@ def run_check_batch(
     for eid, ext in extracted.items():
         out = b_out.get(eid)
         if out is None or out.parsed is None:
-            say(f"[warn] {eid}: phase B failed ({out.error if out else 'no result'}) - pass")
+            say(f"[warn] {eid}: phase B failed ({out.error if out else 'no result'}) - skipped, no verdict written")
             continue
         verdicts[eid] = _aggregate(
             eid, ext, out.parsed, chunks_map[eid],

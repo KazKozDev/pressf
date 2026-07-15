@@ -12,6 +12,7 @@ from textual.screen import ModalScreen
 from textual.widgets import Input, Label, Static
 
 from ..schemas import Example, Verdict
+from ..llm.prompts import truncate_tool_result
 from .session import ReviewSession, SelfCheckSession
 
 _STATUS_MARK = {"supported": "[green]✓[/green]", "contradicted": "[red]✗[/red]", "not_found": "[yellow]?[/yellow]"}
@@ -70,6 +71,7 @@ class ReviewApp(App[None]):
     .section-title { color: $text-muted; margin-top: 1; }
     #verdict-panel { border: round $secondary; padding: 0 1; margin-top: 1; }
     #context-panel { border: round $surface-lighten-2; padding: 0 1; margin-top: 1; }
+    #trajectory-panel { border: round $surface-lighten-2; padding: 0 1; margin-top: 1; }
     NoteScreen { align: center middle; }
     #note-prompt { margin: 1 2 0 2; }
     #note-input { margin: 0 2 1 2; width: 80; }
@@ -104,6 +106,7 @@ class ReviewApp(App[None]):
             yield Static("", id="question")
             yield Static("", id="answer")
             yield Static("", id="context-panel")
+            yield Static("", id="trajectory-panel")
             yield Static("", id="verdict-panel")
         yield Static("", id="footer")
 
@@ -134,12 +137,14 @@ class ReviewApp(App[None]):
         question_w = self.query_one("#question", Static)
         answer_w = self.query_one("#answer", Static)
         context_w = self.query_one("#context-panel", Static)
+        trajectory_w = self.query_one("#trajectory-panel", Static)
         verdict_w = self.query_one("#verdict-panel", Static)
 
         if cur is None:
             question_w.update("[b green]Done![/b green] All examples are marked.")
             answer_w.update("Next: [b]lazy export[/b] - collect the gold set and report. [b]q[/b] — exit.")
             context_w.display = False
+            trajectory_w.display = False
             verdict_w.display = False
             return
 
@@ -152,6 +157,9 @@ class ReviewApp(App[None]):
                 f"[dim]{escape(c.source or '')}[/dim]\n{escape(c.text)}" for c in ex.context
             )
             context_w.update(f"[dim]CONTEXT OF THE VERIFICATE RAG-a[/dim]\n{ctx}")
+        trajectory_w.display = bool(ex.trajectory)
+        if ex.trajectory:
+            trajectory_w.update(self._render_trajectory(ex, verdict))
 
         verdict_w.display = not self.blind
         verdict_w.update(self._render_verdict(ex, verdict))
@@ -172,6 +180,27 @@ class ReviewApp(App[None]):
             lines.append(f"{mark} «{escape(cv.text)}» — {_STATUS_WORD[cv.status]}")
             for ev in cv.evidence[:2]:
                 lines.append(f"   [dim]▸ {escape(ev.source)}:[/dim] [i]«{escape(ev.text)}»[/i]")
+        return "\n".join(lines)
+
+    def _render_trajectory(self, ex: Example, verdict: Verdict | None) -> str:
+        """Render visible recorded steps and the judge finding attached to each step."""
+        issues = {issue.step_index: issue for issue in (verdict.step_issues if verdict else []) or []}
+        lines = ["[dim]RECORDED TRAJECTORY[/dim]"]
+        for step in ex.trajectory or []:
+            issue = issues.get(step.index)
+            suffix = ""
+            if issue and not issue.ok:
+                suffix = f" [red]ISSUE: {escape(issue.issue_kind or 'other')} — {escape(issue.issue or '')}[/red]"
+            if step.kind == "tool_call" and step.tool:
+                args = escape(str(step.tool.arguments))
+                result = escape(truncate_tool_result(step.tool.result))
+                lines.append(f"[b]Step {step.index} — TOOL CALL[/b] {escape(step.tool.name)}{suffix}\n  arguments: {args}")
+                if result:
+                    lines.append(f"  result: {result}")
+                if step.tool.error:
+                    lines.append(f"  [red]error: {escape(step.tool.error)}[/red]")
+            else:
+                lines.append(f"[b]Step {step.index} — {step.kind.upper()}[/b]{suffix}\n  {escape(step.content or '')}")
         return "\n".join(lines)
 
     #── actions ─────────────────────────── ────────────────────────────

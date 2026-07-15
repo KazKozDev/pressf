@@ -145,6 +145,31 @@ describe("PressF Desktop project data", () => {
     expect(readFileSync(path.join(state.root, "GUIDELINES.md"), "utf8")).toContain("system itself");
   });
 
+  it("loads trajectory examples and step findings without claims", () => {
+    const root = path.join(tempHome, "trajectory-state");
+    mkdirSync(path.join(root, "data"), { recursive: true });
+    writeFileSync(path.join(root, "lazy.yaml"), "project: Trajectory state\ntask: agents\ningest:\n  question: question\n  answer: answer\n  trajectory: trajectory\n", "utf8");
+    writeFileSync(path.join(root, "data", "examples.jsonl"), JSON.stringify({ id: "run-1", question: "Status?", answer: "Done.", trajectory: [{ index: 1, kind: "tool_call", tool: { name: "get_status", arguments: { id: "dep-1" }, result: "pending" } }, { index: 2, kind: "answer", content: "Done." }] }) + "\n", "utf8");
+    writeFileSync(path.join(root, "data", "verdicts.jsonl"), JSON.stringify({ example_id: "run-1", answerable: true, recommendation: "f", category: "trajectory_wrong_answer", confidence: 0.95, reasoning: "The answer contradicts the tool result.", judge_model: "fixture", step_issues: [{ step_index: 2, ok: false, issue_kind: "wrong_answer", issue: "Says done despite pending status." }] }) + "\n", "utf8");
+    const state = loadProjectState(root);
+    expect(state.task).toBe("agent_trajectory");
+    expect(state.examples[0].trajectory?.[0].tool?.name).toBe("get_status");
+    expect(state.verdicts["run-1"].claims).toBeUndefined();
+    expect(state.verdicts["run-1"].step_issues?.[0].issue_kind).toBe("wrong_answer");
+  });
+
+  it("creates an Agent Trajectory project through the CLI without a retriever", () => {
+    const data = path.join(tempHome, "traces.jsonl");
+    writeFileSync(data, JSON.stringify({ id: "run-1", question: "Status?", answer: "Done.", trajectory: [{ kind: "tool_call", tool: { name: "get_status", arguments: { id: "dep-1" }, result: "done" } }, { kind: "answer", content: "Done." }] }) + "\n", "utf8");
+    const state = createProjectFromInputs({ name: "Trajectory import", task: "agents", dataPath: data, docsPath: "", mapping: { id: "id", question: "question", answer: "answer", trajectory: "trajectory" } });
+    const config = readFileSync(path.join(state.root, "lazy.yaml"), "utf8");
+    expect(state.task).toBe("agent_trajectory");
+    expect(state.examples[0].trajectory).toHaveLength(2);
+    expect(config).toContain("task: agent_trajectory");
+    expect(config).toContain("trajectory: trajectory");
+    expect(config).not.toContain("retriever:");
+  });
+
   it("deletes a project folder but refuses paths outside the project home", () => {
     const state = createDemoProject();
     expect(existsSync(state.root)).toBe(true);

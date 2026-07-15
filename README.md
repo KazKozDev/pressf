@@ -4,6 +4,8 @@
 
 PressF is a Python CLI and macOS desktop workbench for evaluating RAG systems and LLM assistants. It checks answers against your documents, drafts evidence-backed verdicts, and leaves the final label to a human. The result is a human-verified goldset, not an unreviewed LLM score.
 
+> **Beta** — PressF is under active development. Workflows and report formats may change; validate results before using them in production.
+
 The design priority is simple: automate the repetitive investigation, not the decision. The judge finds relevant evidence, quotes it, and explains its verdict; the reviewer confirms, rejects, or skips it. PressF then measures whether the judge has earned enough agreement to be useful for triage.
 
 Projects stay as ordinary files: `lazy.yaml`, JSONL examples, verdicts, annotations, and exported reports. The desktop app uses the same CLI semantics rather than a separate evaluation format.
@@ -38,12 +40,13 @@ The demo uses `docs_folder` retrieval over [`demo/kb`](demo/kb) and eight delibe
 
 ## What PressF evaluates
 
-The desktop app exposes four evaluation modes.
+The CLI exposes five evaluation modes; the desktop app mirrors the existing CLI task semantics.
 
 - **Truth Check** — find answers that contradict or invent facts relative to the knowledge base.
 - **Policy Check** — find answers that break a supplied rule or policy.
 - **Search Quality** — judge the context returned by *your* retrieval system. Every row must contain its logged retrieved context; PressF deliberately refuses to substitute its own search.
 - **Compare Versions** — compare a baseline and new answer on the same question. Human review is blind to side identity; the report gives B's win rate, a Wilson 95% interval, an exact sign test, and a release recommendation.
+- **Agent Trajectory** — evaluate the complete recorded execution: selected tools, arguments, results and errors, ordering, loops, safety, evidence grounding, and the final answer.
 
 For Compare Versions, the existing pairwise judge can prioritize uncertain pairs and later report agreement with the human reviewer. It does not replace the human pairwise decision.
 
@@ -98,6 +101,43 @@ Use the same project structure, point the retriever at the policy documents, the
 ```
 
 The policy judge returns either compliance, a violation with the offending sentence and quoted rule, or an unclear-policy result.
+
+## Evaluating agent pipelines
+
+Agent Trajectory evaluates the execution path rather than judging only the final answer. It detects fabricated or ignored tool results, wrong arguments, unnecessary duplicate calls and loops, unsafe actions, and final claims that are unsupported by the trace. The verdict categories are `trajectory_ok`, `trajectory_inefficient`, `trajectory_unfaithful`, `trajectory_unsafe`, and `trajectory_wrong_answer`.
+
+A correct-but-wasteful run (`trajectory_inefficient`) passes the gate by default, so extra tool calls do not fail a run that still reached the right answer. To treat inefficiency as a failure, set `llm.trajectory_fail_on_inefficient: true` in `lazy.yaml`.
+
+Input can be native PressF trajectories, LangSmith runs (including nested `child_runs`), Langfuse observations (`SPAN`, `GENERATION`, `TOOL`), or OpenAI Chat Completions message logs. A native JSONL record looks like this:
+
+```json
+{"id":"deploy-1","question":"What is the deployment status?","answer":"It completed successfully.","trajectory":[{"kind":"tool_call","content":null,"tool":{"name":"get_deployment","arguments":{"deployment_id":"dep-123"},"result":"status=completed"}},{"kind":"answer","content":"It completed successfully.","tool":null}]}
+```
+
+Create a project without a retriever, then use the normal workflow:
+
+```bash
+.venv/bin/lazy init agent-audit --data ./traces.jsonl --task agent_trajectory --yes
+.venv/bin/lazy add agent-audit --data ./fresh-traces.jsonl
+.venv/bin/lazy check agent-audit --limit 5 --sync
+.venv/bin/lazy review agent-audit
+.venv/bin/lazy calibrate agent-audit
+.venv/bin/lazy export agent-audit
+.venv/bin/lazy gate agent-audit --min-faithfulness 0.85
+```
+
+The generated `lazy.yaml` has no retriever requirement for this mode:
+
+```yaml
+project: agent-audit
+task: agent_trajectory
+ingest:
+  question: question
+  answer: answer
+  trajectory: trajectory
+```
+
+The review TUI shows every recorded step and its corresponding judge finding. The report adds trajectory category and issue-kind breakdowns, average step length, and concise offending-step details. See [`demo-agent`](demo-agent) for a self-contained dataset and guideline template.
 
 ## Review, calibrate, export
 
@@ -179,7 +219,7 @@ uv pip install --python .venv/bin/python -e '.[qdrant]'
 
 Vector-backed retrievers need an `embeddings:` section configured with the model used to build the index. `init` performs a retriever health check and sample search before it saves the project.
 
-Anthropic is the default judge provider. OpenAI and OpenAI-compatible endpoints are supported through `lazy.yaml` or setup flags; the latter requires both a model name and `base_url`. Anthropic Batch API is used only for the standard Truth Check path when the corpus meets `batch_min_examples`; other tasks run synchronously.
+Anthropic is the default judge provider. OpenAI and OpenAI-compatible endpoints are supported through `lazy.yaml` or setup flags; the latter requires both a model name and `base_url`. Anthropic Batch API is used for Truth Check and Agent Trajectory when the corpus meets `batch_min_examples`; other tasks run synchronously.
 
 ## Useful commands
 

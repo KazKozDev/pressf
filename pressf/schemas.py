@@ -45,6 +45,33 @@ class DialogTurn(BaseModel):
     content: str
 
 
+class ToolCall(BaseModel):
+    """One recorded call to an external tool during an agent run."""
+
+    name: str
+    arguments: dict | str
+    result: str | None = None
+    error: str | None = None
+    duration_ms: int | None = None
+
+
+class TrajectoryStep(BaseModel):
+    """A visible step in an agent trajectory; hidden reasoning is never required."""
+
+    kind: Literal["thought", "tool_call", "answer"]
+    content: str | None = None
+    tool: ToolCall | None = None
+    index: int
+
+    @model_validator(mode="after")
+    def _shape_matches_kind(self):
+        if self.kind == "tool_call" and self.tool is None:
+            raise ValueError("tool_call steps require tool")
+        if self.kind != "tool_call" and self.tool is not None:
+            raise ValueError("only tool_call steps may contain tool")
+        return self
+
+
 class Example(BaseModel):
     """Normalized example after ingest.
 
@@ -58,6 +85,7 @@ class Example(BaseModel):
     answer_b: str | None = None
     context: list[ContextChunk] | None = None
     dialog: list[DialogTurn] | None = None
+    trajectory: list[TrajectoryStep] | None = None
     meta: dict = Field(default_factory=dict)
 
 
@@ -79,6 +107,11 @@ Category = Literal[
     "a_better",
     "b_better",
     "tie",
+    "trajectory_ok",
+    "trajectory_inefficient",
+    "trajectory_unfaithful",
+    "trajectory_unsafe",
+    "trajectory_wrong_answer",
 ]
 
 
@@ -109,6 +142,7 @@ class Verdict(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str
     judge_model: str
+    step_issues: list["TrajectoryStepVerdict"] | None = None
     escalated: bool = False
     cost_usd: float = 0.0
     created_at: datetime = Field(default_factory=utcnow)
@@ -256,3 +290,37 @@ class PairwiseCompareResult(BaseModel):
     evidence_source_index: int | None = Field(default=None, description="Chunk index for evidence_quote")
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str = Field(description="One-sentence reason for the preferred answer or tie")
+
+
+TrajectoryIssueKind = Literal[
+    "fabricated_tool_result",
+    "unnecessary_call",
+    "wrong_arguments",
+    "ignored_result",
+    "loop",
+    "unsafe_action",
+    "other",
+]
+
+
+class TrajectoryStepVerdict(BaseModel):
+    """Judge finding for one recorded trajectory step."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    step_index: int
+    ok: bool
+    issue: str | None = None
+    issue_kind: TrajectoryIssueKind | None = None
+
+
+class TrajectoryResult(BaseModel):
+    """Single-call structured judgement of an agent execution trajectory."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    steps: list[TrajectoryStepVerdict]
+    final_answer_ok: bool
+    efficient: bool
+    confidence: float = Field(ge=0.0, le=1.0)
+    reasoning: str

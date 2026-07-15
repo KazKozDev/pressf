@@ -20,6 +20,7 @@ from ..schemas import (
     PairwiseCompareResult,
     PolicyCheckResult,
     SearchQualityResult,
+    TrajectoryResult,
     Verdict,
     VerificationResult,
 )
@@ -29,6 +30,7 @@ from .aggregate import (
     aggregate_policy_verdict,
     aggregate_refusal_verdict,
     aggregate_retrieval_quality_verdict,
+    aggregate_trajectory_verdict,
 )
 
 T = TypeVar("T", bound=BaseModel)
@@ -90,6 +92,31 @@ def check_example(
 ) -> Verdict:
     """A complete fact check of one example."""
     cost = 0.0
+    if task == "agent_trajectory":
+        def run_trajectory(model: str, escalated: bool, base_cost: float) -> Verdict:
+            result, c = client.parse(
+                model=model,
+                system=system_prompt,
+                user=prompts.agent_trajectory_user(ex),
+                schema=TrajectoryResult,
+            )
+            return aggregate_trajectory_verdict(
+                example_id=ex.id,
+                result=result,
+                judge_model=model,
+                escalated=escalated,
+                cost_usd=base_cost + c,
+                fail_on_inefficient=cfg.trajectory_fail_on_inefficient,
+            )
+
+        verdict = run_trajectory(cfg.judge_model, escalated=False, base_cost=0.0)
+        if (
+            verdict.confidence < cfg.escalation_threshold
+            and cfg.escalation_model
+            and cfg.escalation_model != cfg.judge_model
+        ):
+            verdict = run_trajectory(cfg.escalation_model, escalated=True, base_cost=verdict.cost_usd)
+        return verdict
     if task == "policy_compliance":
         chunks = gather_chunks(retriever, ex.question, [ex.answer], top_k=8)
 
@@ -257,7 +284,7 @@ def run_check(
     from ..retrievers import build_retriever
 
     cfg = project.load_config()
-    retriever = build_retriever(cfg.retriever)
+    retriever = build_retriever(cfg.retriever, cfg.embeddings) if cfg.retriever else None
     system_prompt = prompts.task_system(cfg.task, project.load_guidelines())
 
     existing = set() if force else set(project.load_verdicts())
@@ -274,6 +301,16 @@ def run_check(
                 f"Missing context for {len(missing_context)} example(s): {sample}{suffix}. "
                 "Map the context column and ingest again; PressF will not substitute its own search."
             )
+    if cfg.task == "agent_trajectory":
+        missing_trajectory = [ex.id for ex in examples if ex.trajectory is None]
+        if missing_trajectory:
+            sample = ", ".join(missing_trajectory[:5])
+            suffix = "…" if len(missing_trajectory) > 5 else ""
+            raise ValueError(
+                "Agent Trajectory requires a recorded trajectory for every example. "
+                f"Missing trajectory for {len(missing_trajectory)} example(s): {sample}{suffix}. "
+                "Ingest native traces, OpenAI message logs, LangSmith, or Langfuse exports."
+            )
     todo = [ex for ex in examples if ex.id not in existing]
     summary.skipped_existing = len(examples) - len(todo)
     if only_ids is not None:
@@ -285,7 +322,7 @@ def run_check(
         if summary.cost_usd >= cfg.llm.max_budget_usd:
             summary.budget_stop = True
             break
-        verdict = check_example(client, retriever, cfg.llm, system_prompt, ex, task=cfg.task)
+        verdict = check_example(client, retriever, cfg.llm, system_prompt, ex, task=cfg.task)  # type: ignore[arg-type]
         append_jsonl(project.verdicts_path, verdict)
         summary.checked += 1
         summary.cost_usd += verdict.cost_usd

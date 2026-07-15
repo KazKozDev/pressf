@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from pressf.config import Project
 from pressf.wizard import WizardEngine
 
 
@@ -206,3 +207,25 @@ def test_finalize_openai_compatible_requires_model(tmp_path: Path):
     assert not err
     cfg = engine.project.load_config()
     assert cfg.llm.base_url == "http://localhost:11434/v1"
+
+
+def test_wizard_finalizes_agent_trajectory_without_retriever(tmp_path: Path):
+    engine = WizardEngine(tmp_path / "agent")
+    traces = tmp_path / "traces.jsonl"
+    traces.write_text(
+        '{"id":"t1","question":"Q","answer":"A","trajectory":[{"kind":"answer","content":"A","tool":null}]}\n',
+        encoding="utf-8",
+    )
+    out, err = engine.handle_tool(
+        "run_ingest",
+        {"data_path": str(traces), "question_col": "question", "answer_col": "answer",
+         "trajectory_col": "trajectory", "id_col": "id"},
+    )
+    assert not err and "Accepted 1" in out
+    engine.handle_tool("write_guidelines", {"markdown": "# Agent rules"})
+    out, err = engine.handle_tool(
+        "finalize", {"project_name": "agent", "task": "agent_trajectory"}
+    )
+    assert not err and "lazy.yaml" in out
+    cfg = Project(tmp_path / "agent").load_config()
+    assert cfg.task == "agent_trajectory" and cfg.retriever is None

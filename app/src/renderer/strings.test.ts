@@ -18,4 +18,17 @@ describe("UI strings", () => {
       expect(text, text).not.toMatch(cyrillic);
     }
   });
+
+  it("has complete trajectory task and category copy", () => {
+    expect(S.tasks.homeTitle.agent_trajectory).toBeTruthy();
+    expect(S.tasks.suspiciousTitle.agent_trajectory).toBeTruthy();
+    expect(S.tasks.subtitle.agent_trajectory).toBeTruthy();
+    expect(S.tasks.steps.agent_trajectory).toHaveLength(3);
+    for (const category of ["trajectory_ok", "trajectory_inefficient", "trajectory_unfaithful", "trajectory_unsafe", "trajectory_wrong_answer"] as const) {
+      expect(S.categories[category].title).toBeTruthy();
+      expect(S.categories[category].cardWord).toBeTruthy();
+      expect(S.categoryMarks[category].mark).toBeTruthy();
+      expect(S.categoryMarks[category].label).toBeTruthy();
+    }
+  });
 });

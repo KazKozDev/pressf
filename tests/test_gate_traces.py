@@ -113,14 +113,16 @@ def test_trace_without_answer_skipped():
     assert trace_to_row({"inputs": {"question": "Q"}, "outputs": {}}) is None
 
 
-def test_load_traces_filters_broken():
+def test_load_traces_preserves_broken_rows_for_ingest_reporting():
     rows = [
         {"inputs": {"question": "Q1"}, "outputs": {"answer": "A1"}},
         {"_parse_error": "line 2"},
         {"inputs": {"question": ""}, "outputs": {"answer": "A"}},  #no question
     ]
     out = load_traces(rows)
-    assert len(out) == 1 and out[0]["question"] == "Q1"
+    assert out[0]["question"] == "Q1"
+    assert out[1]["_parse_error"] == "line 2"
+    assert "trace could not be parsed" in out[2]["_parse_error"]
 
 
 def test_init_from_traces_end_to_end(tmp_path: Path):

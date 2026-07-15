@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Project
+from ..llm.prompts import truncate_tool_result
 
 
 def write_report(project: Project) -> Path:
@@ -132,6 +133,47 @@ def write_report(project: Project) -> Path:
 
         pairwise = pairwise_summary(project.effective_pairwise_annotations().values())
 
+    trajectory_lines: list[str] = []
+    if cfg.task == "agent_trajectory":
+        categories = [
+            "trajectory_ok", "trajectory_inefficient", "trajectory_unfaithful",
+            "trajectory_unsafe", "trajectory_wrong_answer",
+        ]
+        category_counts = {category: sum(v.category == category for v in verdicts.values()) for category in categories}
+        total_verdicts = len(verdicts)
+        issue_counts: dict[str, int] = {}
+        failures: list[str] = []
+        lengths = [len(ex.trajectory or []) for ex in examples.values() if ex.trajectory]
+        for eid, verdict in verdicts.items():
+            ex = examples.get(eid)
+            added_failure = False
+            for finding in verdict.step_issues or []:
+                if finding.issue_kind:
+                    issue_counts[finding.issue_kind] = issue_counts.get(finding.issue_kind, 0) + 1
+                if not finding.ok and ex:
+                    step = next((s for s in ex.trajectory or [] if s.index == finding.step_index), None)
+                    tool = step.tool.name if step and step.tool else "—"
+                    excerpt = ""
+                    if step and step.tool:
+                        excerpt = f"args={truncate_tool_result(str(step.tool.arguments), 240)} result={truncate_tool_result(step.tool.result, 240)}"
+                    elif step:
+                        excerpt = truncate_tool_result(step.content, 240)
+                    failures.append(f"- `{eid}` — **{verdict.category}** — step {finding.step_index}, tool {tool}, "
+                                    f"{finding.issue_kind or 'other'}: {finding.issue or '—'}\n  {excerpt}")
+                    added_failure = True
+            if verdict.category != "trajectory_ok" and not added_failure:
+                failures.append(f"- `{eid}` — **{verdict.category}** — step —, tool —: {verdict.reasoning}")
+        category_rows = [f"| {cat} | {category_counts[cat]} | {(category_counts[cat] / total_verdicts if total_verdicts else 0):.0%} |" for cat in categories]
+        issue_rows = [f"- {kind}: {count}" for kind, count in sorted(issue_counts.items(), key=lambda item: (-item[1], item[0]))] or ["No step issues."]
+        average = f"{sum(lengths) / len(lengths):.1f}" if lengths else "—"
+        trajectory_lines = [
+            "## Trajectory analysis", "", "### Category breakdown", "",
+            "| category | count | percentage |", "|---|---:|---:|", *category_rows,
+            "", "### Issue kinds", "", *issue_rows,
+            "", f"### Average trajectory length\n\n{average} steps", "",
+            "### Failed examples", "", *(failures or ["No failed trajectory findings."]), "",
+        ]
+
     lines = [
         f"# Report: {cfg.project}",
         "",
@@ -209,6 +251,8 @@ def write_report(project: Project) -> Path:
             f"- Conclusion: **{pairwise.decision}**",
             "",
         ]
+    if trajectory_lines:
+        lines += trajectory_lines
     project.out_dir.mkdir(parents=True, exist_ok=True)
     path = project.out_dir / "report.md"
     path.write_text("\n".join(lines), encoding="utf-8")

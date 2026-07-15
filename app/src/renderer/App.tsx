@@ -23,7 +23,7 @@ import {
   Sun,
   X
 } from "lucide-react";
-import type { BotConfigView, BotKind, CalibrationProposal, CheckEstimate, CheckOptions, ColumnMapping, DataInspection, DisagreementRecord, Example, Label, LlmProvider, PairwiseShownLeft, PairwiseWinner, ProjectConfigView, ProjectState, ProjectSummary, RetrieverConfigView, Verdict } from "../main/types";
+import type { BotConfigView, BotKind, CalibrationProposal, CheckEstimate, CheckOptions, ColumnMapping, DataInspection, DisagreementRecord, Example, Label, LlmProvider, PairwiseShownLeft, PairwiseWinner, ProjectConfigView, ProjectState, ProjectSummary, RetrieverConfigView, TrajectoryStep, TrajectoryStepVerdict, Verdict } from "../main/types";
 import { RETRIEVER_KINDS, retrieverSpecFor } from "../main/retrieverSpec";
 import { categoryForVerdict, findingCategoryCopy, isSuspicious, proofMarks, trustCaption, type FindingCategory } from "../shared/scanner";
 import { effectiveByAnnotator, faithfulnessScore, flagPrecisionRecall, interAnnotatorKappa, judgeHumanPairs, pairwiseSummary, perCategoryAgreement, wilsonInterval } from "../shared/stats";
@@ -34,7 +34,7 @@ import "./styles.css";
 type Screen = "home" | "name" | "baseline" | "answers" | "docs" | "judge" | "columns" | "ready" | "scan" | "hub" | "list" | "card" | "finish" | "disagreements" | "key" | "addAnswers" | "help";
 type ReviewMode = "suspicious" | "fine" | FindingCategory;
 type ReviewOrder = "confidence" | "informative" | "random" | "original";
-type ModuleTask = "rag_faithfulness" | "policy_compliance" | "retrieval_quality" | "pairwise_compare";
+type ModuleTask = "rag_faithfulness" | "policy_compliance" | "retrieval_quality" | "pairwise_compare" | "agent_trajectory";
 type Theme = "light" | "dark";
 type ScanStatus = {
   phase: "running" | "complete" | "cancelled" | "failed";
@@ -52,7 +52,7 @@ function assistantName(state: ProjectState | null, draft: string) {
 }
 
 function evidenceFor(verdict: Verdict | null | undefined) {
-  return verdict?.claims.flatMap((claim) => claim.evidence.map((ev) => ({ ...ev, claim: claim.text, status: claim.status }))) ?? [];
+  return verdict?.claims?.flatMap((claim) => claim.evidence.map((ev) => ({ ...ev, claim: claim.text, status: claim.status }))) ?? [];
 }
 
 function bestEvidence(verdict: Verdict | null | undefined) {
@@ -75,6 +75,7 @@ function suspiciousTitle(state: ProjectState | null) {
   if (state?.task === "policy_compliance") return S.tasks.suspiciousTitle.policy_compliance;
   if (state?.task === "retrieval_quality") return S.tasks.suspiciousTitle.retrieval_quality;
   if (state?.task === "pairwise_compare") return S.tasks.suspiciousTitle.pairwise_compare;
+  if (state?.task === "agent_trajectory") return S.tasks.suspiciousTitle.agent_trajectory;
   return S.tasks.suspiciousTitle.rag_faithfulness;
 }
 
@@ -82,6 +83,7 @@ function moduleName(task: ModuleTask) {
   if (task === "policy_compliance") return S.modules.policy;
   if (task === "retrieval_quality") return S.modules.search;
   if (task === "pairwise_compare") return S.modules.compare;
+  if (task === "agent_trajectory") return S.modules.trajectory;
   return S.moduleTruth;
 }
 
@@ -102,6 +104,14 @@ function docsQuestion(task: ModuleTask, assistant: string) {
   if (task === "retrieval_quality") return S.interview.searchQ(assistant);
   if (task === "pairwise_compare") return S.interview.docsQ(assistant);
   return S.interview.docsQ(assistant);
+}
+
+function answersQuestion(task: ModuleTask, assistant: string) {
+  if (task === "policy_compliance") return S.interview.policyAnswersQ(assistant);
+  if (task === "retrieval_quality") return S.interview.searchAnswersQ(assistant);
+  if (task === "pairwise_compare") return S.interview.newAnswersQ(assistant);
+  if (task === "agent_trajectory") return S.interview.tracesQ(assistant);
+  return S.interview.answersQ(assistant);
 }
 
 function docsHint(task: ModuleTask) {
@@ -170,7 +180,8 @@ function Rail({ activeTask, onSelectTask, devOpen, setDevOpen, theme, onThemeTog
     { task: "rag_faithfulness", label: S.moduleTruth, icon: <ShieldCheck size={15} /> },
     { task: "policy_compliance", label: S.modules.policy, icon: <ClipboardCheck size={15} /> },
     { task: "retrieval_quality", label: S.modules.search, icon: <SearchCheck size={15} /> },
-    { task: "pairwise_compare", label: S.modules.compare, icon: <GitCompareArrows size={15} /> }
+    { task: "pairwise_compare", label: S.modules.compare, icon: <GitCompareArrows size={15} /> },
+    { task: "agent_trajectory", label: S.modules.trajectory, icon: <Radar size={15} /> }
   ];
   return (
     <aside className="rail">
@@ -361,7 +372,7 @@ function DeveloperPanel({ state, onState, onClose }: { state: ProjectState | nul
             {botSaved && <p className="devSaved">{S.dev.botSaved}</p>}
           </>}
 
-          <h3>{S.dev.retrieverHeading}</h3>
+          {state.task !== "agent_trajectory" && <><h3>{S.dev.retrieverHeading}</h3>
           {retriever && <>
             <p className="devNote">{S.dev.retrieverHint}</p>
             <label className="devField"><span>{S.dev.retrieverKind}</span>
@@ -379,7 +390,7 @@ function DeveloperPanel({ state, onState, onClose }: { state: ProjectState | nul
             </label>
             <button className="primaryAction" onClick={saveRetriever}>{S.dev.retrieverSave}</button>
             {retrieverSaved && <p className="devSaved">{S.dev.retrieverSaved}</p>}
-          </>}
+          </>}</>}
 
           <h3>{S.dev.files}</h3>
           <button onClick={() => window.pressf.openFile(state.paths.examples)}>{S.developerFiles.examples}</button>
@@ -407,7 +418,7 @@ function Home({ projects, activeTask, onCheck, onDemo, onOpen, onDelete }: { pro
         </div>
         <div className="workspaceActions">
           <button className="primaryAction" onClick={onCheck}>{S.home.newEvaluation}</button>
-          <button onClick={onDemo}>{S.home.tryExample}</button>
+          <button onClick={() => onDemo()}>{S.home.tryExample}</button>
         </div>
       </header>
       <section className="workspaceMeta" aria-label={S.home.status}>
@@ -491,13 +502,18 @@ function InterviewShell({ children, onBack }: { children: React.ReactNode; onBac
   );
 }
 
-function FileShape() {
+function FileShape({ task }: { task: ModuleTask }) {
+  const sample = S.interview.fileSamples[task];
   return (
-    <div className="fileShape" aria-label={S.interview.fileShape}>
-      <div>{S.interview.fileShape.split(" | ")[0]}</div><div>{S.interview.fileShape.split(" | ")[1]}</div>
-      <p>{S.interview.sampleQuestion}</p><p>{S.interview.sampleAnswer}</p>
+    <div className="fileShape" aria-label={sample.columns.join(" | ")}>
+      {sample.columns.map((column) => <div key={column}>{column}</div>)}
+      {sample.rows.map((row) => <p key={row}>{row}</p>)}
     </div>
   );
+}
+
+function WorkflowGuide({ task }: { task: ModuleTask }) {
+  return <details className="workflowGuide"><summary>{S.interview.workflowTitle}</summary><ol>{S.interview.workflowGuide[task].map((step) => <li key={step.label}><strong>{step.label}</strong><span>{step.body}</span></li>)}</ol></details>;
 }
 
 function PathPicker({ label, ariaLabel, value, placeholder, onChange, onBlur, onChoose, chooseLabel }: { label: string; ariaLabel: string; value: string; placeholder: string; onChange: (value: string) => void; onBlur?: () => void; onChoose: () => void; chooseLabel: string }) {
@@ -615,26 +631,28 @@ function FlaggedTable({ state, onOpen }: { state: ProjectState; onOpen: (id: str
         <label>{S.hub.filters.category}<select value={category} onChange={(event) => setCategory(event.target.value)}><option value="all">{S.hub.filters.all}</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
         <label>{S.hub.filters.confidence}<select value={confidence} onChange={(event) => setConfidence(event.target.value)}><option value="all">{S.hub.filters.all}</option><option value="high">{S.hub.filters.high}</option><option value="medium">{S.hub.filters.medium}</option><option value="low">{S.hub.filters.low}</option></select></label>
       </div>
-      <table className="flaggedTable">
-      <thead>
-        <tr>
-          {header("question", S.hub.table.question)}
-          {header("category", S.hub.table.category)}
-          {header("confidence", S.hub.table.confidence, true)}
-          {header("status", S.hub.table.status)}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row) => (
-          <tr key={row.id} className={row.reviewed ? "reviewed" : "pending"} onClick={() => !row.reviewed && onOpen(row.id)}>
-            <td title={row.question}>{row.question}</td>
-            <td>{row.category}</td>
-            <td className="num">{row.confidence.toFixed(2)}</td>
-            <td>{row.reviewed ? S.hub.table.reviewed : S.hub.table.pending}</td>
+      <div className="tableWrap">
+        <table className="flaggedTable">
+        <thead>
+          <tr>
+            {header("question", S.hub.table.question)}
+            {header("category", S.hub.table.category)}
+            {header("confidence", S.hub.table.confidence, true)}
+            {header("status", S.hub.table.status)}
           </tr>
-        ))}
-        </tbody>
-      </table>
+        </thead>
+        <tbody>
+          {rows.map((row) => (
+            <tr key={row.id} className={row.reviewed ? "reviewed" : "pending"} onClick={() => !row.reviewed && onOpen(row.id)}>
+              <td title={row.question}>{row.question}</td>
+              <td>{row.category}</td>
+              <td className="num">{row.confidence.toFixed(2)}</td>
+              <td>{row.reviewed ? S.hub.table.reviewed : S.hub.table.pending}</td>
+            </tr>
+          ))}
+          </tbody>
+        </table>
+      </div>
     </>
   );
 }
@@ -679,7 +697,8 @@ function Hub({ state, onMode, onList, onOpenCard, onFinish, onAdd, order, onOrde
         )}
         <div className="hubPrimaryRow">
           <button className="primaryAction" onClick={() => onMode("suspicious")}>{state.task === "pairwise_compare" ? S.hub.compare : S.hub.primary}</button>
-          {state.task !== "pairwise_compare" && <button className="linkAction" onClick={() => onMode("fine")}>{S.hub.fine}</button>}
+          {state.task !== "pairwise_compare" && <button className="hubFineAction" onClick={() => onMode("fine")}>{S.hub.fine}</button>}
+          {state.task !== "pairwise_compare" && <label className="reviewOrder">{S.review.order}<select value={order} onChange={(event) => onOrder(event.target.value as ReviewOrder)}><option value="confidence">{S.review.confidence}</option><option value="informative">{S.review.informative}</option><option value="random">{S.review.random}</option><option value="original">{S.review.original}</option></select></label>}
         </div>
         {state.task !== "pairwise_compare" && (
           <div className="hubActions">
@@ -687,12 +706,11 @@ function Hub({ state, onMode, onList, onOpenCard, onFinish, onAdd, order, onOrde
             <button className="hubAction" onClick={onSelfCheck}><RotateCcw size={15} /> {S.review.selfCheck}</button>
             <button className="hubAction" onClick={async () => { await window.pressf.runExport(state.root, { pairs: true }); setPairsSaved(true); }}><Save size={15} /> {S.export.pairs}</button>
             {pairsSaved && <button className="hubAction" onClick={() => window.pressf.revealFile(state.paths.pairs)}>{S.export.showPairs}</button>}
-            <label className="reviewOrder">{S.review.order}<select value={order} onChange={(event) => onOrder(event.target.value as ReviewOrder)}><option value="confidence">{S.review.confidence}</option><option value="informative">{S.review.informative}</option><option value="random">{S.review.random}</option><option value="original">{S.review.original}</option></select></label>
           </div>
         )}
       </section>
       {state.task !== "pairwise_compare" && <section className="categoryGrid">
-        {((state.task === "policy_compliance" ? ["policy_break", "uncertain"] : state.task === "retrieval_quality" ? ["search_missing", "search_partial", "uncertain"] : ["contradicts", "made_up", "bad_refusal", "incomplete", "uncertain"]) as FindingCategory[]).map((category) => {
+        {((state.task === "policy_compliance" ? ["policy_break", "uncertain"] : state.task === "retrieval_quality" ? ["search_missing", "search_partial", "uncertain"] : state.task === "agent_trajectory" ? ["trajectory_ok", "trajectory_inefficient", "trajectory_unfaithful", "trajectory_unsafe", "trajectory_wrong_answer"] : ["contradicts", "made_up", "bad_refusal", "incomplete", "uncertain"]) as FindingCategory[]).map((category) => {
           const items = categories.get(category) ?? [];
           return (
             <button key={category} className="categoryCard" onClick={() => onList(category)} disabled={items.length === 0}>
@@ -728,6 +746,47 @@ function CategoryList({ state, mode, onOpen, onBack }: { state: ProjectState; mo
         })}
       </div>
     </main>
+  );
+}
+
+function trajectoryArguments(step: TrajectoryStep) {
+  const value = step.tool?.arguments;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value ?? {}, null, 2);
+  } catch {
+    return String(value ?? "");
+  }
+}
+
+function TrajectoryReview({ trajectory, issues }: { trajectory: TrajectoryStep[] | null | undefined; issues: TrajectoryStepVerdict[] | null | undefined }) {
+  if (!trajectory?.length) return <p className="noDoc">{S.card.noTrajectory}</p>;
+  const issuesByStep = new Map((issues ?? []).filter((issue) => !issue.ok).map((issue) => [issue.step_index, issue]));
+  return (
+    <section className="trajectoryReview" aria-label={S.card.trajectory}>
+      <h2>{S.card.trajectory}</h2>
+      <ol className="trajectorySteps">
+        {trajectory.map((step) => {
+          const issue = issuesByStep.get(step.index);
+          const label = step.kind === "tool_call" ? S.card.toolCall : step.kind === "answer" ? S.card.finalAnswer : S.card.thought;
+          return (
+            <li key={`${step.index}-${step.kind}`} className={issue ? "trajectoryStep hasIssue" : "trajectoryStep"}>
+              <div className="trajectoryStepHead"><span>{S.card.step(step.index)}</span><strong>{label}</strong></div>
+              {step.kind === "tool_call" && step.tool && <div className="toolCallBody">
+                <strong className="toolName">{step.tool.name}</strong>
+                <dl>
+                  <div><dt>{S.card.arguments}</dt><dd><pre>{trajectoryArguments(step)}</pre></dd></div>
+                  {step.tool.result && <div><dt>{S.card.result}</dt><dd><pre className="toolResult">{step.tool.result}</pre></dd></div>}
+                  {step.tool.error && <div><dt>{S.card.error}</dt><dd className="toolError">{step.tool.error}</dd></div>}
+                </dl>
+              </div>}
+              {step.kind !== "tool_call" && step.content && <blockquote>{step.content}</blockquote>}
+              {issue && <aside className="stepIssue"><strong>{S.card.stepIssue}{issue.issue_kind ? `: ${issue.issue_kind}` : ""}</strong><span>{issue.issue || ""}</span></aside>}
+            </li>
+          );
+        })}
+      </ol>
+    </section>
   );
 }
 
@@ -790,7 +849,7 @@ function CardScreen({ state, assistant, currentId, mode, onState, onDone, onBack
           <strong>{example.question}</strong>
           <span>{S.card.left(Math.max(0, left - 1))}</span>
         </div>
-        <div className="faceOff">
+        {state.task === "agent_trajectory" ? <TrajectoryReview trajectory={example.trajectory} issues={verdict?.step_issues} /> : <div className="faceOff">
           <article>
             <h2>{S.card.answered(assistant)}</h2>
             <blockquote>{example.answer}</blockquote>
@@ -799,7 +858,7 @@ function CardScreen({ state, assistant, currentId, mode, onState, onDone, onBack
             <h2>{evidenceHeading(state.task)}</h2>
             {quote ? <><blockquote>{quote.text}</blockquote><small>{quote.source}</small></> : <p className="noDoc">{S.card.noDoc}</p>}
           </article>}
-        </div>
+        </div>}
         {!blindReview && verdict && (
           <div className={`judgeTake ${verdict.recommendation === "f" ? "judgeFail" : "judgePass"}`}>
             <span className="judgeTag">{S.card.judgeLabel}</span>
@@ -825,7 +884,7 @@ function CardScreen({ state, assistant, currentId, mode, onState, onDone, onBack
         {!blindReview && <details className="detailsPanel">
           <summary>{S.card.details}</summary>
           <p>{S.card.rawCaption}</p>
-          {verdict?.claims.map((claim) => <p key={claim.text}><strong>{findingCategoryCopy[categoryForVerdict(verdict)].cardWord}</strong> · {claim.text}</p>)}
+          {verdict?.claims?.map((claim) => <p key={claim.text}><strong>{findingCategoryCopy[categoryForVerdict(verdict)].cardWord}</strong> · {claim.text}</p>)}
           {verdict?.reasoning && <blockquote>{verdict.reasoning}</blockquote>}
         </details>}
       </section>
@@ -1071,12 +1130,16 @@ function Finish({ state, assistant, onNew, onDisagreements, onRecheck }: { state
       {state.task !== "pairwise_compare" && <GatePanel state={state} />}
       {state.task !== "pairwise_compare" && <JudgeQualityPanel state={state} />}
       <div className="finishActions">
-        <fieldset className="formatPicker"><legend>{S.export.formats}</legend>{["jsonl", "csv", "hf"].map((format) => <label key={format}><input type="checkbox" checked={formats.includes(format)} onChange={() => toggleFormat(format)} /> {format}</label>)}</fieldset>
-        <button className="primaryAction" onClick={save}><Save size={18} /> {S.finish.save}</button>
-        <button onClick={async () => { await window.pressf.runExport(state.root, { pairs: true }); setPairsSaved(true); }}>{S.export.pairs}</button>
-        <button onClick={viewDisagreements}>{S.finish.disagreements}</button>
-        {score !== null && <button onClick={improveJudge} disabled={calibrating}>{calibrating ? "Preparing suggestion…" : S.finish.improveJudge}</button>}
-        <button onClick={onNew}>{S.finish.again(assistant)}</button>
+        <div className="finishActionGroup finishExportActions">
+          <fieldset className="formatPicker"><legend>{S.export.formats}</legend>{["jsonl", "csv", "hf"].map((format) => <label key={format}><input type="checkbox" checked={formats.includes(format)} onChange={() => toggleFormat(format)} /> {format}</label>)}</fieldset>
+          <button className="primaryAction" onClick={save}><Save size={18} /> {S.finish.save}</button>
+          <button onClick={async () => { await window.pressf.runExport(state.root, { pairs: true }); setPairsSaved(true); }}>{S.export.pairs}</button>
+        </div>
+        <div className="finishActionGroup finishReviewActions">
+          <button onClick={viewDisagreements}>{S.finish.disagreements}</button>
+          {score !== null && <button onClick={improveJudge} disabled={calibrating}>{calibrating ? "Preparing suggestion…" : S.finish.improveJudge}</button>}
+          <button className="finishRecheck" onClick={onNew}>{S.finish.again(assistant)}</button>
+        </div>
       </div>
       {saved && <div className="savedReport"><p className="saved">{S.finish.saved}</p><button onClick={() => reportPath && window.pressf.revealFile(reportPath)}><FolderOpen size={16} /> {S.finish.showInFinder}</button></div>}
       {pairsSaved && <button onClick={() => window.pressf.revealFile(state.paths.pairs)}>{S.export.showPairs}</button>}
@@ -1263,18 +1326,18 @@ function App() {
     const next = await window.pressf.projectState(root);
     setState(next);
     setName(next.name);
-    setActiveTask(next.task === "policy_compliance" ? "policy_compliance" : next.task === "retrieval_quality" ? "retrieval_quality" : next.task === "pairwise_compare" ? "pairwise_compare" : "rag_faithfulness");
+    setActiveTask(next.task === "policy_compliance" ? "policy_compliance" : next.task === "retrieval_quality" ? "retrieval_quality" : next.task === "pairwise_compare" ? "pairwise_compare" : next.task === "agent_trajectory" || next.task === "agents" ? "agent_trajectory" : "rag_faithfulness");
     setScreen(Object.keys(next.verdicts).length ? "hub" : "ready");
   }
 
-  async function tryDemo() {
+  async function tryDemo(openFirstFinding = false) {
     const next = await window.pressf.createDemo(activeTask);
     setState(next);
     setName(next.name);
     await refreshProjects();
     // The first experience should prove the value immediately: show a concrete
     // document-backed finding, not a dashboard the user has to interpret.
-    const first = firstCardId(next, "suspicious");
+    const first = openFirstFinding ? firstCardId(next, "suspicious") : null;
     if (first) {
       setMode("suspicious");
       setCurrentId(first);
@@ -1291,7 +1354,7 @@ function App() {
       ? inspected.headers.find((header) => ["answer_b", "response_b", "completion_b", "version_b"].includes(header.toLowerCase()))
       : null;
     setInspection(inspected);
-    setMapping({ question: inspected.detected.question, answer: comparisonAnswer || inspected.detected.answer, context: inspected.detected.context, id: inspected.detected.id });
+    setMapping({ question: inspected.detected.question, answer: comparisonAnswer || inspected.detected.answer, context: inspected.detected.context, trajectory: inspected.detected.trajectory, id: inspected.detected.id });
     setLabelColumn(inspected.detected.label || null);
   }
 
@@ -1300,7 +1363,7 @@ function App() {
     if (!file) return;
     const inspected = await window.pressf.inspectDataFile(file);
     setAddInspection(inspected);
-    setAddMapping({ question: inspected.detected.question, answer: inspected.detected.answer, context: inspected.detected.context, id: inspected.detected.id });
+    setAddMapping({ question: inspected.detected.question, answer: inspected.detected.answer, context: inspected.detected.context, trajectory: inspected.detected.trajectory, id: inspected.detected.id });
   }
 
   async function beginAddAnswers(root: string) {
@@ -1401,6 +1464,11 @@ function App() {
       setScreen("hub");
       return;
     }
+    // Pairwise comparison is human review by design; it has no required judge run.
+    if (current.task === "pairwise_compare") {
+      setScreen("hub");
+      return;
+    }
     if (!(await window.pressf.hasKey(current.llmProvider))) {
       setScreen("key");
       return;
@@ -1458,16 +1526,16 @@ function App() {
   const content = useMemo(() => {
     if (screen === "help") return <HelpScreen onBack={() => setScreen("home")} />;
     if (screen === "home") return <Home projects={projects} activeTask={activeTask} onCheck={() => setScreen("name")} onDemo={tryDemo} onOpen={openProject} onDelete={deleteProject} />;
-    if (screen === "name") return <InterviewShell onBack={() => setScreen("home")}><h1>{S.interview.nameQ}</h1><div className="nameRow"><input className="bigInput" value={name} placeholder={S.interview.namePlaceholder} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setScreen(activeTask === "pairwise_compare" ? "baseline" : "answers"); }} /><button className="primaryAction" onClick={() => setScreen(activeTask === "pairwise_compare" ? "baseline" : "answers")}>{S.interview.next}</button></div></InterviewShell>;
+    if (screen === "name") return <InterviewShell onBack={() => setScreen("home")}><h1>{S.interview.nameQ}</h1><div className="nameRow"><input className="bigInput" value={name} placeholder={S.interview.namePlaceholders[activeTask]} onChange={(event) => setName(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") setScreen(activeTask === "pairwise_compare" ? "baseline" : "answers"); }} /><button className="primaryAction" onClick={() => setScreen(activeTask === "pairwise_compare" ? "baseline" : "answers")}>{S.interview.next}</button></div></InterviewShell>;
     if (screen === "baseline") return <BaselinePicker projects={projects} onBack={() => setScreen("name")} onChoose={(root) => { setBaselineRoot(root); setBotReady(false); setBotError(""); setScreen("answers"); }} />;
-    if (screen === "answers") { const needsContext = activeTask === "retrieval_quality" && !mapping.context; return <InterviewShell onBack={() => setScreen(activeTask === "pairwise_compare" ? "baseline" : "name")}><h1>{activeTask === "pairwise_compare" ? S.interview.newAnswersQ(assistant) : S.interview.answersQ(assistant)}</h1><div className="dropInterview"><FileSpreadsheet size={28} /><p>{S.interview.answersHint}</p><FileShape /><PathPicker label="Answers file" ariaLabel={S.interview.pasteFile} placeholder={S.interview.answersPath} value={dataPath} onChange={setDataPath} onBlur={() => inspectFile(dataPath)} onChoose={chooseDataFile} chooseLabel={S.interview.chooseFile} /></div>{needsContext && <p className="devError">{S.interview.searchContextRequired}</p>}{activeTask === "pairwise_compare" && baselineRoot && <BotRunSetup running={botRunning} ready={botReady} error={botError} onRun={runBaselineBot} />}{labelColumn && activeTask !== "pairwise_compare" && <label className="importLine"><input type="checkbox" checked={importLabels} onChange={(event) => setImportLabels(event.target.checked)} /> {S.interview.labelOffer}</label>}<button className="primaryAction" disabled={!dataPath} onClick={() => !mapping.question || !mapping.answer || needsContext ? setScreen("columns") : activeTask === "pairwise_compare" ? createProject() : setScreen("docs")}>{S.interview.next}</button></InterviewShell>; }
+    if (screen === "answers") { const needsContext = activeTask === "retrieval_quality" && !mapping.context; const needsTrajectory = activeTask === "agent_trajectory" && !mapping.trajectory; const isTrajectory = activeTask === "agent_trajectory"; return <InterviewShell onBack={() => setScreen(activeTask === "pairwise_compare" ? "baseline" : "name")}><h1>{answersQuestion(activeTask, assistant)}</h1><section className="setupPanel"><WorkflowGuide task={activeTask} /><div className="setupDivider" /><div className="dropInterview"><FileSpreadsheet size={28} /><p>{S.interview.inputHints[activeTask]}</p><FileShape task={activeTask} /><PathPicker label={S.interview.inputFileLabels[activeTask]} ariaLabel={S.interview.pasteFile} placeholder={isTrajectory ? S.interview.tracesPath : S.interview.answersPath} value={dataPath} onChange={setDataPath} onBlur={() => inspectFile(dataPath)} onChoose={chooseDataFile} chooseLabel={S.interview.chooseFile} /></div></section>{needsContext && <p className="devError">{S.interview.searchContextRequired}</p>}{activeTask === "pairwise_compare" && baselineRoot && <BotRunSetup running={botRunning} ready={botReady} error={botError} onRun={runBaselineBot} />}{labelColumn && activeTask !== "pairwise_compare" && !isTrajectory && <label className="importLine"><input type="checkbox" checked={importLabels} onChange={(event) => setImportLabels(event.target.checked)} /> {S.interview.labelOffer}</label>}<button className="primaryAction" disabled={!dataPath} onClick={() => !mapping.question || !mapping.answer || needsContext || needsTrajectory ? setScreen("columns") : activeTask === "pairwise_compare" ? createProject() : isTrajectory ? setScreen("judge") : setScreen("docs")}>{S.interview.next}</button></InterviewShell>; }
     if (screen === "docs") return <InterviewShell onBack={() => setScreen("answers")}><h1>{docsQuestion(activeTask, assistant)}</h1><div className="kbKindToggle" role="radiogroup" aria-label={S.dev.retrieverKind}><button className={kbKind === "docs_folder" ? "active" : ""} aria-pressed={kbKind === "docs_folder"} onClick={() => { if (kbKind !== "docs_folder") { setKbKind("docs_folder"); setDocsPath(""); } }}>{S.interview.kbFolder}</button><button className={kbKind === "chunks_file" ? "active" : ""} aria-pressed={kbKind === "chunks_file"} onClick={() => { if (kbKind !== "chunks_file") { setKbKind("chunks_file"); setDocsPath(""); } }}>{S.interview.kbChunks}</button></div><div className="dropInterview">{kbKind === "chunks_file" ? <FileSpreadsheet size={28} /> : <FolderOpen size={28} />}<p>{kbKind === "chunks_file" ? S.interview.chunksHint : docsHint(activeTask)}</p>{kbKind === "chunks_file" ? <PathPicker label="Chunks file" ariaLabel={S.interview.pasteChunks} placeholder={S.interview.chunksPath} value={docsPath} onChange={setDocsPath} onChoose={chooseChunksFile} chooseLabel={S.interview.chooseFile} /> : <PathPicker label="Documentation folder" ariaLabel={S.interview.pasteDocs} placeholder={S.interview.docsPath} value={docsPath} onChange={setDocsPath} onChoose={chooseDocsFolder} chooseLabel={S.interview.chooseFolder} />}</div><button className="primaryAction" disabled={!docsPath} onClick={() => inspection && (!mapping.question || !mapping.answer) ? setScreen("columns") : setScreen("judge")}>{S.interview.next}</button></InterviewShell>;
-    if (screen === "judge") return <InterviewShell onBack={() => setScreen("docs")}><h1>{S.judge.title}</h1><p className="readyLine">{S.judge.body}</p><label>{S.judge.provider}<select value={judgeProvider} onChange={(event) => setJudgeProvider(event.target.value as LlmProvider)}><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="openai_compatible">OpenAI-compatible</option></select></label><label>{S.judge.model}<input value={judgeModel} placeholder={judgeProvider === "openai_compatible" ? "qwen3:latest" : S.judge.modelOptional} onChange={(event) => setJudgeModel(event.target.value)} /></label>{judgeProvider === "openai_compatible" && <label>{S.judge.baseUrl}<input value={baseUrl} placeholder="http://localhost:11434/v1" onChange={(event) => setBaseUrl(event.target.value)} /></label>}<p>{S.judge.keyHint(judgeProvider)}</p><button className="primaryAction" disabled={judgeProvider === "openai_compatible" && (!judgeModel.trim() || !baseUrl.trim())} onClick={createProject}>{S.interview.next}</button></InterviewShell>;
-    if (screen === "columns" && inspection) { const needsContext = activeTask === "retrieval_quality" && !mapping.context; return <InterviewShell onBack={() => setScreen(activeTask === "pairwise_compare" ? "answers" : "docs")}><h1>{!mapping.question ? S.interview.questionColumn : !mapping.answer ? S.interview.answerColumn : "Which column contains the retrieved context?"}</h1><div className="columnPicker">{inspection.headers.map((header) => <button key={header} onClick={() => setMapping((prev) => !prev.question ? { ...prev, question: header } : !prev.answer ? { ...prev, answer: header } : { ...prev, context: header })}>{header}</button>)}</div><button className="primaryAction" disabled={!mapping.question || !mapping.answer || needsContext || (activeTask !== "pairwise_compare" && !docsPath)} onClick={() => activeTask === "pairwise_compare" ? createProject() : setScreen("judge")}>{S.interview.next}</button></InterviewShell>; }
+    if (screen === "judge") return <InterviewShell onBack={() => setScreen(activeTask === "agent_trajectory" ? "answers" : "docs")}><h1>{S.judge.title}</h1><p className="readyLine">{S.judge.body}</p><label>{S.judge.provider}<select value={judgeProvider} onChange={(event) => setJudgeProvider(event.target.value as LlmProvider)}><option value="anthropic">Anthropic</option><option value="openai">OpenAI</option><option value="openai_compatible">OpenAI-compatible</option></select></label><label>{S.judge.model}<input value={judgeModel} placeholder={judgeProvider === "openai_compatible" ? "qwen3:latest" : S.judge.modelOptional} onChange={(event) => setJudgeModel(event.target.value)} /></label>{judgeProvider === "openai_compatible" && <label>{S.judge.baseUrl}<input value={baseUrl} placeholder="http://localhost:11434/v1" onChange={(event) => setBaseUrl(event.target.value)} /></label>}<p>{S.judge.keyHint(judgeProvider)}</p><button className="primaryAction" disabled={judgeProvider === "openai_compatible" && (!judgeModel.trim() || !baseUrl.trim())} onClick={createProject}>{S.interview.next}</button></InterviewShell>;
+    if (screen === "columns" && inspection) { const needsContext = activeTask === "retrieval_quality" && !mapping.context; const needsTrajectory = activeTask === "agent_trajectory" && !mapping.trajectory; return <InterviewShell onBack={() => setScreen("answers")}><h1>{!mapping.question ? S.interview.questionColumn : !mapping.answer ? S.interview.answerColumn : needsTrajectory ? S.interview.trajectoryColumn : S.interview.contextColumn}</h1><div className="columnPicker">{inspection.headers.map((header) => <button key={header} onClick={() => setMapping((prev) => !prev.question ? { ...prev, question: header } : !prev.answer ? { ...prev, answer: header } : needsTrajectory ? { ...prev, trajectory: header } : { ...prev, context: header })}>{header}</button>)}</div><button className="primaryAction" disabled={!mapping.question || !mapping.answer || needsContext || needsTrajectory || (activeTask !== "pairwise_compare" && activeTask !== "agent_trajectory" && !docsPath)} onClick={() => activeTask === "pairwise_compare" ? createProject() : setScreen("judge")}>{S.interview.next}</button></InterviewShell>; }
     if (screen === "ready") {
       const hasPreparedChecks = Boolean(state && Object.keys(state.verdicts).length >= state.examples.length && state.examples.length > 0);
       const estimateCost = estimate?.batchUsd !== null && estimate?.batchUsd !== undefined ? `$${estimate.batchUsd.toFixed(2)}` : estimate?.syncUsd !== null && estimate?.syncUsd !== undefined ? `$${estimate.syncUsd.toFixed(2)}` : null;
-      return <InterviewShell onBack={() => setScreen("docs")}><h1>{S.interview.ready}</h1><p className="readyLine">{S.interview.readyLine(checkOptions.limit ? Math.min(checkOptions.limit, state?.examples.length ?? 0) : state?.examples.length ?? 0, estimateCost)}</p>{!estimate && !hasPreparedChecks && <p>{S.interview.estimateFallback}</p>}<details className="advancedCheck"><summary>{S.check.advanced}</summary><label><input type="checkbox" checked={Boolean(checkOptions.force)} onChange={(event) => setCheckOptions((current) => ({ ...current, force: event.target.checked }))} /> {S.check.force}</label><label>{S.check.limit}<input type="number" min="1" max={state?.examples.length || 1} value={checkOptions.limit || ""} onChange={(event) => setCheckOptions((current) => ({ ...current, limit: event.target.value ? Number(event.target.value) : undefined }))} /></label>{checkOptions.limit && <small>{S.check.limitHint(checkOptions.limit)}</small>}<label><input type="checkbox" checked={Boolean(checkOptions.sync)} onChange={(event) => setCheckOptions((current) => ({ ...current, sync: event.target.checked }))} /> {S.check.sync}</label></details><button className="primaryAction" onClick={startRealScan}>{estimate || hasPreparedChecks || state?.task === "pairwise_compare" ? S.interview.start : S.interview.connectKey}</button></InterviewShell>;
+      return <InterviewShell onBack={() => setScreen(state?.task === "agent_trajectory" ? "judge" : "docs")}><h1>{S.interview.ready}</h1><p className="readyLine">{S.interview.readyLine(checkOptions.limit ? Math.min(checkOptions.limit, state?.examples.length ?? 0) : state?.examples.length ?? 0, estimateCost)}</p>{!estimate && !hasPreparedChecks && <p>{S.interview.estimateFallback}</p>}<details className="advancedCheck"><summary>{S.check.advanced}</summary><label><input type="checkbox" checked={Boolean(checkOptions.force)} onChange={(event) => setCheckOptions((current) => ({ ...current, force: event.target.checked }))} /> {S.check.force}</label><label>{S.check.limit}<input type="number" min="1" max={state?.examples.length || 1} value={checkOptions.limit || ""} onChange={(event) => setCheckOptions((current) => ({ ...current, limit: event.target.value ? Number(event.target.value) : undefined }))} /></label>{checkOptions.limit && <small>{S.check.limitHint(checkOptions.limit)}</small>}<label><input type="checkbox" checked={Boolean(checkOptions.sync)} onChange={(event) => setCheckOptions((current) => ({ ...current, sync: event.target.checked }))} /> {S.check.sync}</label></details><button className="primaryAction" onClick={startRealScan}>{estimate || hasPreparedChecks || state?.task === "pairwise_compare" ? S.interview.start : S.interview.connectKey}</button></InterviewShell>;
     }
     if (screen === "scan" && scan) return <ScanScreen state={state} status={scan} onDone={() => setScreen("hub")} onCancel={cancelScan} />;
     if (screen === "hub" && state) return <Hub state={state} onMode={startMode} onList={(nextMode) => { setMode(nextMode); setScreen("list"); }} onOpenCard={(id) => { setMode("suspicious"); setCurrentId(id); setScreen("card"); }} onFinish={() => setScreen("finish")} onAdd={() => beginAddAnswers(state.root)} order={reviewOrder} onOrder={setReviewOrder} onSelfCheck={beginSelfCheck} />;
@@ -1486,7 +1554,7 @@ function App() {
       <Rail activeTask={activeTask} onSelectTask={selectTask} devOpen={devOpen} setDevOpen={setDevOpen} theme={theme} onThemeToggle={() => setTheme((current) => current === "light" ? "dark" : "light")} onHelp={() => setScreen("help")} />
       {content}
       {devOpen && <DeveloperPanel state={state} onState={setState} onClose={() => setDevOpen(false)} />}
-      {onboardingOpen && <Onboarding onTryExample={() => { dismissOnboarding(); void tryDemo(); }} onClose={dismissOnboarding} />}
+      {onboardingOpen && <Onboarding onTryExample={() => { dismissOnboarding(); void tryDemo(true); }} onClose={dismissOnboarding} />}
     </div>
   );
 }

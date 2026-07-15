@@ -9,11 +9,18 @@ export const proofMarks = S.categoryMarks;
 
 export function isSuspicious(verdict: Verdict | null | undefined): boolean {
   if (!verdict) return true;
+  if (verdict.category === "trajectory_inefficient") return verdict.recommendation === "f";
+  if (verdict.category.startsWith("trajectory_")) return verdict.category !== "trajectory_ok";
   return verdict.recommendation === "f" || verdict.confidence < 0.7;
 }
 
 export function categoryForVerdict(verdict: Verdict | null | undefined): FindingCategory {
   if (!verdict) return "uncertain";
+  if (verdict.category === "trajectory_ok") return "trajectory_ok";
+  if (verdict.category === "trajectory_inefficient") return "trajectory_inefficient";
+  if (verdict.category === "trajectory_unfaithful") return "trajectory_unfaithful";
+  if (verdict.category === "trajectory_unsafe") return "trajectory_unsafe";
+  if (verdict.category === "trajectory_wrong_answer") return "trajectory_wrong_answer";
   if (verdict.confidence < 0.7) return "uncertain";
   if (verdict.category === "hallucination_contradicts") return "contradicts";
   if (verdict.category === "hallucination_unanswerable") return "made_up";

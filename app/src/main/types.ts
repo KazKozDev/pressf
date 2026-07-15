@@ -6,12 +6,35 @@ export type ContextChunk = {
   source?: string | null;
 };
 
+export type ToolCall = {
+  name: string;
+  arguments: Record<string, unknown> | string;
+  result?: string | null;
+  error?: string | null;
+  duration_ms?: number | null;
+};
+
+export type TrajectoryStep = {
+  kind: "thought" | "tool_call" | "answer";
+  content?: string | null;
+  tool?: ToolCall | null;
+  index: number;
+};
+
+export type TrajectoryStepVerdict = {
+  step_index: number;
+  ok: boolean;
+  issue?: string | null;
+  issue_kind?: string | null;
+};
+
 export type Example = {
   id: string;
   question: string;
   answer: string;
   answer_b?: string | null;
   context?: ContextChunk[] | null;
+  trajectory?: TrajectoryStep[] | null;
   meta?: Record<string, unknown>;
 };
 
@@ -29,7 +52,7 @@ export type ClaimVerdict = {
 
 export type Verdict = {
   example_id: string;
-  claims: ClaimVerdict[];
+  claims?: ClaimVerdict[];
   is_refusal?: boolean;
   answerable: boolean;
   grounded?: boolean | null;
@@ -41,6 +64,7 @@ export type Verdict = {
   escalated?: boolean;
   cost_usd?: number;
   created_at?: string;
+  step_issues?: TrajectoryStepVerdict[] | null;
 };
 
 export type Annotation = {
@@ -137,6 +161,7 @@ export type ColumnMapping = {
   question: string;
   answer: string;
   context?: string | null;
+  trajectory?: string | null;
   id?: string | null;
 };
 

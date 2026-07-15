@@ -1,6 +1,6 @@
 import type { LlmProvider } from "../main/types";
 
-export type FindingCategory = "contradicts" | "made_up" | "bad_refusal" | "incomplete" | "policy_break" | "search_partial" | "search_missing" | "uncertain" | "looks_fine";
+export type FindingCategory = "contradicts" | "made_up" | "bad_refusal" | "incomplete" | "policy_break" | "search_partial" | "search_missing" | "trajectory_ok" | "trajectory_inefficient" | "trajectory_unfaithful" | "trajectory_unsafe" | "trajectory_wrong_answer" | "uncertain" | "looks_fine";
 
 export const S = {
   appName: "PressF",
@@ -39,12 +39,13 @@ export const S = {
     whoBody: "Teams shipping anything that answers from documents — support bots, RAG apps, knowledge-base assistants, and AI agents. Anyone who needs evidence, not a hunch, that their system tells the truth, follows the rules, retrieves the right context, or actually improved after a change.",
     edgeTitle: "The key idea",
     edgeBody: "Manual evaluation is accurate but slow; automatic evaluation is fast but unproven. PressF splits the work: the judge does the tedious part — breaking each answer into claims, searching the docs, and quoting evidence — while you do only the fast part, yes or no. You get goldset-quality labels at a fraction of the cost, plus a number that tells you how far the judge can be trusted on its own.",
-    modulesTitle: "Four kinds of evaluation",
+    modulesTitle: "Five kinds of evaluation",
     modules: [
       { name: "Truth Check", body: "Does the answer contradict or invent facts against your documents?" },
       { name: "Policy Check", body: "Does the answer break a rule your system must never break?" },
       { name: "Search Quality", body: "Did retrieval return enough context to answer at all?" },
-      { name: "Compare Versions", body: "Is the new version better than the old one on the same questions?" }
+      { name: "Compare Versions", body: "Is the new version better than the old one on the same questions?" },
+      { name: "Agent Trajectory", body: "Did the agent take a sound path to the answer, or fabricate tool results, loop, or act unsafely?" }
     ],
     trustTitle: "How trust is earned",
     trustBody: "First you label answers with the judge's help. The report then shows how often you and the judge agreed. High agreement means the judge can triage routine cases on its own; low agreement means tighter guidelines or a stronger model. A human always stays in the loop for doubtful and high-impact answers.",
@@ -61,26 +62,30 @@ export const S = {
   modules: {
     policy: "Policy Check",
     search: "Search Quality",
-    compare: "Compare Versions"
+    compare: "Compare Versions",
+    trajectory: "Agent Trajectory"
   },
   tasks: {
     homeTitle: {
       rag_faithfulness: "Is your AI telling the truth?",
       policy_compliance: "Does your AI follow the rules?",
       retrieval_quality: "Did your AI find the right context?",
-      pairwise_compare: "Which answer should win?"
+      pairwise_compare: "Which answer should win?",
+      agent_trajectory: "Did your agent take a sound path?"
     },
     suspiciousTitle: {
       rag_faithfulness: "Flagged answers",
       policy_compliance: "Policy violations",
       retrieval_quality: "Retrieval gaps",
-      pairwise_compare: "Version pairs"
+      pairwise_compare: "Version pairs",
+      agent_trajectory: "Trajectory findings"
     },
     subtitle: {
-      rag_faithfulness: "Works with anything that answers from your documents: support bots, RAG apps, knowledge-base assistants, AI agents.",
-      policy_compliance: "For teams with rules the system must never break: refund limits, compliance language, escalation requirements.",
-      retrieval_quality: "For RAG pipelines where wrong answers might be a retrieval problem, not a model problem.",
-      pairwise_compare: "For comparing two versions of the same system on the same questions before you ship a change."
+      rag_faithfulness: "For support bots, knowledge assistants, research copilots, and document Q&A tools. Check that answers are supported by the sources you trust.",
+      policy_compliance: "For AI assistants used in customer support, finance, HR, legal, and other rule-based work. Check that every answer follows the rules you set.",
+      retrieval_quality: "For RAG apps, enterprise search, help centres, and internal knowledge tools. Check whether search retrieved enough context before judging the model's answer.",
+      pairwise_compare: "For chatbots, copilots, and AI workflows before an update or release. Compare two versions on the same questions and see which one performs better.",
+      agent_trajectory: "For coding agents, support agents, research agents, and any tool-using AI. Check that its steps are safe, grounded, and lead to the result efficiently."
     },
     steps: {
       rag_faithfulness: [
@@ -94,14 +99,19 @@ export const S = {
         "You confirm or overrule each flagged violation."
       ],
       retrieval_quality: [
-        "PressF looks at what your search retrieved for each question.",
-        "It flags cases where retrieval didn't return enough to answer.",
-        "You confirm whether the retrieved context was really insufficient."
+        "PressF checks what search returned for each question.",
+        "It flags when the context was not enough to answer.",
+        "You confirm the retrieval gap."
       ],
       pairwise_compare: [
         "PressF shows the old and new answer side by side.",
         "You judge which one is better, or call it a tie.",
         "The results tell you whether the new version is an improvement."
+      ],
+      agent_trajectory: [
+        "PressF checks recorded tool calls and final answers.",
+        "It flags unsafe, fabricated, or wasteful paths.",
+        "You confirm each finding."
       ]
     }
   },
@@ -183,17 +193,81 @@ export const S = {
     back: "Back",
     next: "Next",
     nameQ: "What are you evaluating?",
-    namePlaceholder: "Helpdesk bot",
+    namePlaceholders: {
+      rag_faithfulness: "RAG assistant, support bot, knowledge-base chat",
+      policy_compliance: "Refund assistant, HR copilot, compliance bot",
+      retrieval_quality: "Docs search, support search, internal knowledge search",
+      pairwise_compare: "Helpdesk bot v2, new prompt, support assistant update",
+      agent_trajectory: "Coding agent, research agent, support agent"
+    },
     baselineQ: "Choose the baseline check",
     baselineHint: "PressF will compare its answers with a new answers file. The baseline project stays unchanged.",
     noBaseline: "Finish at least one check before comparing versions.",
     answersQ: (name: string) => `Show me ${name}'s answers`,
+    policyAnswersQ: (name: string) => `Show me ${name}'s answers to check against your rules`,
+    searchAnswersQ: (name: string) => `Show me ${name}'s answers and retrieved context`,
+    tracesQ: (name: string) => `Show me ${name}'s execution traces`,
     newAnswersQ: (name: string) => `Show me the new ${name} answers`,
     runBot: "Run my bot on this goldset",
     runBotHint: "Use the bot connector saved on the baseline project instead of dropping a file.",
     runningBot: "Running your bot on the baseline questions…",
     botOutputReady: "Fresh answers are ready and selected for comparison.",
     answersHint: "CSV, JSONL, or a simple table with one question and one answer per row.",
+    tracesHint: "Drop native PressF traces, OpenAI message logs, LangSmith, or Langfuse exports. PressF will read the recorded tool path.",
+    workflowTitle: "How this check works",
+    workflowGuide: {
+      rag_faithfulness: [
+        { label: "You provide", body: "Questions, answers, and the documents they should be supported by." },
+        { label: "PressF checks", body: "Whether each answer is supported by those documents." },
+        { label: "You review", body: "Flagged answers and any unclear evidence." },
+        { label: "You get", body: "A verified goldset, trust score, and exportable report." }
+      ],
+      policy_compliance: [
+        { label: "You provide", body: "Questions, answers, and the policies, playbooks, or rules they must follow." },
+        { label: "PressF checks", body: "Whether answers break or miss those rules." },
+        { label: "You review", body: "Flagged violations and the evidence behind them." },
+        { label: "You get", body: "A verified policy-evaluation set and report." }
+      ],
+      retrieval_quality: [
+        { label: "You provide", body: "Questions, answers, recorded retrieved context, and source documents." },
+        { label: "PressF checks", body: "Whether retrieval supplied enough evidence before the answer was produced." },
+        { label: "You review", body: "Flagged retrieval gaps and borderline cases." },
+        { label: "You get", body: "A verified retrieval-quality set and report." }
+      ],
+      pairwise_compare: [
+        { label: "You provide", body: "A checked baseline project and new answers to the same questions." },
+        { label: "PressF checks", body: "Both versions against the same evidence." },
+        { label: "You review", body: "Which version wins each pair, or mark a tie." },
+        { label: "You get", body: "A comparison report and training pairs. PressF does not run either model." }
+      ],
+      agent_trajectory: [
+        { label: "You provide", body: "Recorded traces with questions, final answers, and tool calls or events." },
+        { label: "PressF checks", body: "Whether each recorded path is safe, grounded, and efficient." },
+        { label: "You review", body: "Unsupported, unsafe, or unclear steps." },
+        { label: "You get", body: "A verified trajectory set and report. PressF does not run the agent." }
+      ]
+    },
+    inputHints: {
+      rag_faithfulness: "Upload the answers you want to fact-check. Next, add the source documents that should support them.",
+      policy_compliance: "Upload the answers you want to check for rule compliance. Next, add the policy files, playbooks, or rules they must follow.",
+      retrieval_quality: "Upload answers with the exact context returned by search. The context column is required; PressF does not search again.",
+      pairwise_compare: "Upload the new version's answers. PressF pairs them with the selected baseline on the same questions.",
+      agent_trajectory: "Upload recorded traces with the final answer and tool history. The trajectory column is required; PressF does not run the agent."
+    },
+    inputFileLabels: {
+      rag_faithfulness: "Answers to verify",
+      policy_compliance: "Answers to check against rules",
+      retrieval_quality: "Answers and retrieved context",
+      pairwise_compare: "New answers to compare",
+      agent_trajectory: "Recorded execution traces"
+    },
+    fileSamples: {
+      rag_faithfulness: { columns: ["question", "answer"], rows: ["How do I cancel?", "You can cancel from billing."] },
+      policy_compliance: { columns: ["question", "answer"], rows: ["Can I refund this order?", "Refund it immediately."] },
+      retrieval_quality: { columns: ["question", "answer", "context"], rows: ["How do I cancel?", "You can cancel from billing.", "Billing help: cancellation"] },
+      pairwise_compare: { columns: ["question", "answer"], rows: ["Is there a free trial?", "A 14-day trial is available."] },
+      agent_trajectory: { columns: ["question", "answer", "trajectory"], rows: ["Find my invoice", "I found the invoice.", "search → get_invoice"] }
+    },
     pasteFile: "Paste file path",
     chooseFile: "Choose file",
     docsQ: (name: string) => `Show me the documents ${name} should answer from`,
@@ -213,15 +287,15 @@ export const S = {
     labelOffer: "I found human decisions in this file. Import them too?",
     questionColumn: "Which column is the question?",
     answerColumn: "Which column is the answer?",
+    contextColumn: "Which column contains the retrieved context?",
+    trajectoryColumn: "Which column contains the trajectory?",
     ready: "Ready.",
     start: "Start",
     connectKey: "Connect key",
     estimateFallback: "Connect a key to estimate time and cost.",
-    fileShape: "question | answer",
-    sampleQuestion: "How do I cancel?",
-    sampleAnswer: "You can cancel from billing.",
     answersPath: "/path/to/answers.csv",
     docsPath: "/path/to/docs",
+    tracesPath: "/path/to/traces.jsonl",
     readyLine: (count: number, cost: string | null) => `Checking ${count} answers: about a few minutes${cost ? ` and from ${cost}` : "."}`
   },
   scan: {
@@ -296,7 +370,17 @@ export const S = {
     judgeLabel: "Judge's take",
     judgePass: "Looks correct",
     judgeFail: "Looks wrong",
-    judgeConfidence: (c: number) => `confidence ${(Number(c) || 0).toFixed(2)}`
+    judgeConfidence: (c: number) => `confidence ${(Number(c) || 0).toFixed(2)}`,
+    trajectory: "Execution trajectory",
+    step: (index: number) => `Step ${index}`,
+    thought: "Thought",
+    toolCall: "Tool call",
+    finalAnswer: "Final answer",
+    arguments: "Arguments",
+    result: "Result",
+    error: "Tool error",
+    stepIssue: "Judge finding",
+    noTrajectory: "No recorded trajectory was available for this run."
   },
   compare: {
     leftAnswer: "Left answer",
@@ -446,6 +530,31 @@ export const S = {
       cardWord: "missing context",
       detail: "Retrieved context does not answer the question."
     },
+    trajectory_ok: {
+      title: "Sound trajectory",
+      cardWord: "sound path",
+      detail: "The agent used recorded tools safely and grounded its answer in their results."
+    },
+    trajectory_inefficient: {
+      title: "Inefficient trajectory",
+      cardWord: "wasteful path",
+      detail: "The answer is acceptable, but the agent took unnecessary or repeated steps."
+    },
+    trajectory_unfaithful: {
+      title: "Unfaithful trajectory",
+      cardWord: "fabricated path",
+      detail: "The final answer is not grounded in the recorded tool evidence."
+    },
+    trajectory_unsafe: {
+      title: "Unsafe trajectory",
+      cardWord: "unsafe path",
+      detail: "The agent took or attempted an unsafe action."
+    },
+    trajectory_wrong_answer: {
+      title: "Wrong trajectory answer",
+      cardWord: "wrong answer",
+      detail: "The execution path led to an incorrect final answer."
+    },
     uncertain: {
       title: "Low confidence",
       cardWord: "unclear",
@@ -465,6 +574,11 @@ export const S = {
     policy_break: { mark: "PV", label: "policy violation" },
     search_partial: { mark: "PR", label: "partial retrieval" },
     search_missing: { mark: "MR", label: "missing retrieval" },
+    trajectory_ok: { mark: "TO", label: "sound trajectory" },
+    trajectory_inefficient: { mark: "TI", label: "inefficient trajectory" },
+    trajectory_unfaithful: { mark: "TU", label: "unfaithful trajectory" },
+    trajectory_unsafe: { mark: "TS", label: "unsafe trajectory" },
+    trajectory_wrong_answer: { mark: "TW", label: "wrong trajectory answer" },
     uncertain: { mark: "LC", label: "low confidence" },
     looks_fine: { mark: "OK", label: "correct" }
   } satisfies Record<FindingCategory, { mark: string; label: string }>,
