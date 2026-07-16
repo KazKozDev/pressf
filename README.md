@@ -5,7 +5,7 @@
 <h3 align="center">The evaluation workspace for everyone</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Beta-D4A72C?style=flat-square&amp;labelColor=5B4711" alt="Status: Beta">
+  <a href="https://pypi.org/project/pressf/"><img src="https://img.shields.io/pypi/v/pressf?style=flat-square&amp;label=PyPI&amp;color=D4A72C&amp;labelColor=5B4711" alt="PyPI version"></a>
   <a href="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/KazKozDev/pressf/ci.yml?branch=master&amp;style=flat-square&amp;label=CI&amp;color=D4A72C&amp;labelColor=5B4711&amp;logo=github&amp;logoColor=white" alt="CI passing"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.11%2B-D4A72C?style=flat-square&amp;labelColor=5B4711&amp;logo=python&amp;logoColor=white" alt="Python 3.11+"></a>
   <img src="https://img.shields.io/badge/Coverage-90%25-D4A72C?style=flat-square&amp;labelColor=5B4711" alt="Coverage 90%">
