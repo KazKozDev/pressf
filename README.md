@@ -5,11 +5,11 @@
 <h3 align="center">The evaluation workspace for everyone</h3>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Status-Beta-F97316?style=flat-square&amp;labelColor=9A3412" alt="Status: Beta">
-  <a href="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/KazKozDev/pressf/ci.yml?branch=master&amp;style=flat-square&amp;label=CI&amp;color=F97316&amp;labelColor=9A3412&amp;logo=github&amp;logoColor=white" alt="CI passing"></a>
-  <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.11%2B-F97316?style=flat-square&amp;labelColor=9A3412&amp;logo=python&amp;logoColor=white" alt="Python 3.11+"></a>
-  <img src="https://img.shields.io/badge/Coverage-90%25-F97316?style=flat-square&amp;labelColor=9A3412" alt="Coverage 90%">
-  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-F97316?style=flat-square&amp;labelColor=9A3412" alt="License MIT">
+  <img src="https://img.shields.io/badge/Status-Beta-D4A72C?style=flat-square&amp;labelColor=5B4711" alt="Status: Beta">
+  <a href="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml"><img src="https://img.shields.io/github/actions/workflow/status/KazKozDev/pressf/ci.yml?branch=master&amp;style=flat-square&amp;label=CI&amp;color=D4A72C&amp;labelColor=5B4711&amp;logo=github&amp;logoColor=white" alt="CI passing"></a>
+  <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.11%2B-D4A72C?style=flat-square&amp;labelColor=5B4711&amp;logo=python&amp;logoColor=white" alt="Python 3.11+"></a>
+  <img src="https://img.shields.io/badge/Coverage-90%25-D4A72C?style=flat-square&amp;labelColor=5B4711" alt="Coverage 90%">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-D4A72C?style=flat-square&amp;labelColor=5B4711" alt="License MIT">
 </p>
 
 PressF is a Python CLI and macOS desktop workbench for evaluating RAG systems and LLM assistants. It checks answers against your documents, drafts evidence-backed verdicts, and leaves the final label to a human. The result is a human-verified goldset, not an unreviewed LLM score.
