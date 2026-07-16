@@ -2,13 +2,14 @@
   <img src="docs/pressf-wordmark.png" alt="PressF" width="210">
 </p>
 
+<h3 align="center">The evaluation workspace for everyone</h3>
+
 <p align="center">
   <a href="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml"><img src="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml/badge.svg" alt="CI passing"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+"></a>
+  <img src="https://img.shields.io/badge/Coverage-84%25-yellowgreen" alt="Coverage 84%">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License MIT"></a>
 </p>
-
-<h3 align="center">Verify every AI answer before it reaches your customers, team, or product.</h3>
 
 PressF is a Python CLI and macOS desktop workbench for evaluating RAG systems and LLM assistants. It checks answers against your documents, drafts evidence-backed verdicts, and leaves the final label to a human. The result is a human-verified goldset, not an unreviewed LLM score.
 
