@@ -5,15 +5,14 @@
 <h3 align="center">The evaluation workspace for everyone</h3>
 
 <p align="center">
+  <img src="https://img.shields.io/badge/Status-Beta-8A2BE2" alt="Status: Beta">
   <a href="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml"><img src="https://github.com/KazKozDev/pressf/actions/workflows/ci.yml/badge.svg" alt="CI passing"></a>
   <a href="pyproject.toml"><img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+"></a>
-  <img src="https://img.shields.io/badge/Coverage-84%25-yellowgreen" alt="Coverage 84%">
+  <img src="https://img.shields.io/badge/Coverage-90%25-brightgreen" alt="Coverage 90%">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License MIT"></a>
 </p>
 
 PressF is a Python CLI and macOS desktop workbench for evaluating RAG systems and LLM assistants. It checks answers against your documents, drafts evidence-backed verdicts, and leaves the final label to a human. The result is a human-verified goldset, not an unreviewed LLM score.
-
-> **Beta** — PressF is under active development. Workflows and report formats may change; validate results before using them in production.
 
 The design priority is simple: automate the repetitive investigation, not the decision. The judge finds relevant evidence, quotes it, and explains its verdict; the reviewer confirms, rejects, or skips it. Projects stay as ordinary files: `lazy.yaml`, JSONL examples, verdicts, annotations, and exported reports.
 

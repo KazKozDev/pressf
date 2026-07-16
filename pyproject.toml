@@ -35,7 +35,7 @@ hf = ["datasets>=2.19"]
 all = [
     "pressf[xlsx,chroma,faiss,qdrant,pgvector,pinecone,weaviate,milvus,elastic,lancedb,local-embeddings,hf]",
 ]
-dev = ["pytest>=8.0"]
+dev = ["pytest>=8.0", "coverage[toml]>=7.6"]
 
 [project.scripts]
 lazy = "pressf.cli:app"

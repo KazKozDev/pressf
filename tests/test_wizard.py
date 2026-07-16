@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from pressf.config import Project
+from pressf.review import ReviewSession
 from pressf.wizard import WizardEngine
 
 
@@ -229,3 +232,79 @@ def test_wizard_finalizes_agent_trajectory_without_retriever(tmp_path: Path):
     assert not err and "lazy.yaml" in out
     cfg = Project(tmp_path / "agent").load_config()
     assert cfg.task == "agent_trajectory" and cfg.retriever is None
+
+
+class _Console:
+    def __init__(self, user_input: str = ""):
+        self.lines: list[str] = []
+        self.user_input = user_input
+
+    def print(self, text):
+        self.lines.append(str(text))
+
+    def input(self, prompt):
+        return self.user_input
+
+
+def test_run_wizard_processes_tool_results_and_completes(monkeypatch, tmp_path: Path):
+    from pressf.wizard import run_wizard
+
+    responses = iter([
+        SimpleNamespace(
+            stop_reason="tool_use",
+            content=[
+                SimpleNamespace(type="text", text="I will finish this"),
+                SimpleNamespace(type="tool_use", name="done", input={"summary": "enough"}, id="tool-1"),
+            ],
+        ),
+        SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="Finished")]),
+    ])
+    client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kwargs: next(responses)))
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=lambda: client))
+    console = _Console()
+    assert run_wizard(tmp_path / "project", console, first_message="start") is True
+    assert any("Finished" in line for line in console.lines)
+
+
+def test_run_wizard_returns_false_when_the_user_exits(monkeypatch, tmp_path: Path):
+    from pressf.wizard import run_wizard
+
+    response = SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="Need input")])
+    client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kwargs: response))
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=lambda: client))
+    console = _Console("/quit")
+    assert run_wizard(tmp_path / "project", console) is False
+    assert any("Need input" in line for line in console.lines)
+
+
+def test_wizard_status_lists_verdicts_labels_exports_and_directories(project: Project):
+    ReviewSession(project).decide("f")
+    project.out_dir.mkdir()
+    (project.out_dir / "report.md").write_text("report", encoding="utf-8")
+    engine = WizardEngine(project.root)
+    status, is_error = engine.handle_tool("project_status", {})
+    assert not is_error and "Judge verdicts: 3" in status and "Human labels: 1" in status and "Exported: report.md" in status
+
+    nested = project.root / "nested"
+    nested.mkdir()
+    (nested / "file.txt").write_text("x", encoding="utf-8")
+    listing, is_error = engine.handle_tool("list_dir", {"path": str(project.root)})
+    assert not is_error and "[dir] nested" in listing
+    _, is_error = engine.handle_tool("list_dir", {"path": str(project.root / "missing")})
+    assert is_error
+
+
+def test_run_wizard_handles_eof_and_turn_limit(monkeypatch, tmp_path: Path):
+    from pressf import wizard
+
+    response = SimpleNamespace(stop_reason="end_turn", content=[SimpleNamespace(type="text", text="More")])
+    client = SimpleNamespace(messages=SimpleNamespace(create=lambda **kwargs: response))
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=lambda: client))
+
+    class EofConsole(_Console):
+        def input(self, prompt):
+            raise EOFError
+
+    assert wizard.run_wizard(tmp_path / "eof", EofConsole()) is False
+    monkeypatch.setattr(wizard, "MAX_TURNS", 1)
+    assert wizard.run_wizard(tmp_path / "limit", _Console("continue")) is False
