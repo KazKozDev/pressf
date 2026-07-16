@@ -25,6 +25,10 @@ async function assertMainPathEnglish(page: Page) {
   expect(text, "main path should not contain Cyrillic UI copy").not.toMatch(cyrillic);
 }
 
+function projectNameInput(page: Page) {
+  return page.locator("input.bigInput");
+}
+
 async function createPreparedFixture(page: Page, home: string) {
   const docs = path.join(home, "docs");
   mkdirSync(docs);
@@ -32,7 +36,7 @@ async function createPreparedFixture(page: Page, home: string) {
   const csv = path.resolve("tests/fixtures/labeled.csv");
 
   await page.getByTestId("main-path").getByRole("button", { name: "New evaluation", exact: true }).click();
-  await page.getByPlaceholder("Helpdesk").fill("Helpdesk");
+  await projectNameInput(page).fill("Helpdesk");
   await page.getByRole("button", { name: "Next" }).click();
   await page.getByLabel("Paste file path").fill(csv);
   await page.getByLabel("Paste file path").blur();
@@ -69,9 +73,10 @@ test("new scanner flow: fixture file, prepared results, categories, cards, finis
     await page.keyboard.press("p");
     await page.keyboard.press("u");
     await page.keyboard.press("p");
-    await page.keyboard.press("s");
-    await page.getByPlaceholder("Why skip this one?").fill("Need product owner.");
-    await page.getByRole("button", { name: /^skip$/ }).click();
+    await page.getByRole("button", { name: "Can't assess S", exact: true }).click();
+    await expect(page.getByPlaceholder("Why can't this case be assessed?")).toBeVisible();
+    await page.getByPlaceholder("Why can't this case be assessed?").fill("Need product owner.");
+    await page.getByRole("button", { name: "Can't assess", exact: true }).click();
     await page.keyboard.press("f");
 
     await expect(page.getByText("Done!")).toBeVisible();
@@ -103,7 +108,7 @@ test("help screen explains what PressF is and returns home", async () => {
     await expect(page.getByRole("heading", { name: "The key idea" })).toBeVisible();
     await expect(page.getByText(/goldset-quality labels at a fraction of the cost/)).toBeVisible();
     await page.getByRole("button", { name: /Back/i }).click();
-    await expect(page.getByRole("heading", { name: "Evaluation workspace" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "The evaluation workspace for everyone" })).toBeVisible();
   } finally {
     await app.close();
     rmSync(home, { recursive: true, force: true });
@@ -204,6 +209,33 @@ test("exports and shows the actual human-versus-judge disagreements", async () =
   }
 });
 
+test("judge evaluation opens mismatches and revises a human label through the normal review log", async () => {
+  const home = mkdtempSync(path.join(tmpdir(), "pressf-judge-evaluation-"));
+  const { app, page } = await launchPressF(home);
+  try {
+    await createPreparedFixture(page, home);
+    await page.getByRole("button", { name: "Review flagged" }).click();
+    await page.keyboard.press("p");
+    await page.keyboard.press("p");
+    await page.keyboard.press("p");
+    await expect(page.getByText("Done!")).toBeVisible();
+
+    await page.getByRole("button", { name: "Evaluate judge" }).click();
+    await expect(page.getByRole("heading", { name: "Judge evaluation" })).toBeVisible();
+    await expect(page.getByText("3 / 3 human-reviewed")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Disagreements" })).toBeVisible();
+    await page.getByRole("button", { name: "Open case" }).first().click();
+    await expect(page.getByRole("heading", { name: "Evaluate case" })).toBeVisible();
+    await page.getByRole("button", { name: /^Fail F$/ }).click();
+    await page.getByRole("button", { name: /Back/ }).click();
+    await expect(page.getByText("1 case to inspect")).toBeVisible();
+    expect(readFileSync(path.join(home, "Helpdesk", "data", "annotations.jsonl"), "utf8").trim().split("\n")).toHaveLength(4);
+  } finally {
+    await app.close();
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
 test("exports DPO training pairs from f labels", async () => {
   const home = mkdtempSync(path.join(tmpdir(), "pressf-pairs-"));
   const { app, page } = await launchPressF(home);
@@ -247,12 +279,12 @@ test("each module has its own home copy and its own example demo", async () => {
   const home = mkdtempSync(path.join(tmpdir(), "pressf-modules-"));
   const { app, page } = await launchPressF(home);
   try {
-    await expect(page.getByRole("heading", { name: "Evaluation workspace" })).toBeVisible();
-    await expect(page.getByText(/support bots, RAG apps/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "The evaluation workspace for everyone" })).toBeVisible();
+    await expect(page.getByText(/support bots, knowledge assistants/)).toBeVisible();
 
     await page.getByRole("button", { name: "Policy Check" }).click();
-    await expect(page.getByRole("heading", { name: "Evaluation workspace" })).toBeVisible();
-    await expect(page.getByText(/rules the system must never break/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "The evaluation workspace for everyone" })).toBeVisible();
+    await expect(page.getByText(/customer support, finance, HR/)).toBeVisible();
     await page.getByText("How it works").click();
     await expect(page.getByText("PressF checks each answer against your rules document.")).toBeVisible();
     await page.getByRole("button", { name: /Show a real error/i }).click();
@@ -274,7 +306,7 @@ test("policy check works end to end with prepared rule findings", async () => {
     writeFileSync(path.join(rules, "rules.md"), "Do not promise refunds without manager approval.\n", "utf8");
     await page.getByRole("button", { name: "Policy Check" }).click();
     await page.getByTestId("main-path").getByRole("button", { name: "New evaluation", exact: true }).click();
-    await page.getByPlaceholder("Helpdesk").fill("RefundBot");
+    await projectNameInput(page).fill("RefundBot");
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByLabel("Paste file path").fill(path.resolve("tests/fixtures/policy.csv"));
     await page.getByLabel("Paste file path").blur();
@@ -313,7 +345,7 @@ test("search quality works end to end with prepared context findings", async () 
     writeFileSync(path.join(docs, "billing.md"), "Refund deadlines live in billing policy pages.\n", "utf8");
     await page.getByRole("button", { name: "Search Quality" }).click();
     await page.getByTestId("main-path").getByRole("button", { name: "New evaluation", exact: true }).click();
-    await page.getByPlaceholder("Helpdesk").fill("SearchBot");
+    await projectNameInput(page).fill("SearchBot");
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByLabel("Paste file path").fill(path.resolve("tests/fixtures/search.csv"));
     await page.getByLabel("Paste file path").blur();
@@ -357,7 +389,7 @@ test("compare versions writes pairwise decisions and exports pairs", async () =>
   try {
     await page.getByRole("button", { name: "Compare Versions" }).click();
     await page.getByTestId("main-path").getByRole("button", { name: "New evaluation", exact: true }).click();
-    await page.getByPlaceholder("Helpdesk").fill("AnswerLab");
+    await projectNameInput(page).fill("AnswerLab");
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Baseline" }).click();
     await page.getByLabel("Paste file path").fill(path.resolve("tests/fixtures/compare.csv"));
@@ -412,7 +444,7 @@ test("configures a command bot, runs it on the baseline, and reaches pairwise re
 
     await page.getByRole("button", { name: "Compare Versions" }).click();
     await page.getByTestId("main-path").getByRole("button", { name: "New evaluation", exact: true }).click();
-    await page.getByPlaceholder("Helpdesk bot").fill("AnswerLab");
+    await projectNameInput(page).fill("AnswerLab");
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByRole("button", { name: "Baseline" }).click();
     await page.getByRole("button", { name: "Run my bot on this goldset" }).click();
@@ -465,7 +497,7 @@ test("main path is English-only", async () => {
     await assertMainPathEnglish(page);
     await page.getByTestId("main-path").getByRole("button", { name: "New evaluation", exact: true }).click();
     await assertMainPathEnglish(page);
-    await page.getByPlaceholder("Helpdesk").fill("Helpdesk");
+    await projectNameInput(page).fill("Helpdesk");
     await page.getByRole("button", { name: "Next" }).click();
     await assertMainPathEnglish(page);
   } finally {
@@ -482,7 +514,7 @@ test("setup writes an OpenAI judge configuration", async () => {
   const { app, page } = await launchPressF(home);
   try {
     await page.getByRole("button", { name: "New evaluation", exact: true }).click();
-    await page.getByPlaceholder("Helpdesk").fill("OpenAI bot");
+    await projectNameInput(page).fill("OpenAI bot");
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByLabel("Paste file path").fill(path.resolve("tests/fixtures/labeled.csv"));
     await page.getByLabel("Paste file path").blur();
@@ -507,7 +539,7 @@ test("imports existing human labels and shows agreement after prepared judging",
   const { app, page } = await launchPressF(home);
   try {
     await page.getByRole("button", { name: "New evaluation", exact: true }).click();
-    await page.getByPlaceholder("Helpdesk").fill("Imported labels");
+    await projectNameInput(page).fill("Imported labels");
     await page.getByRole("button", { name: "Next" }).click();
     await page.getByLabel("Paste file path").fill(path.resolve("tests/fixtures/labeled.csv"));
     await page.getByLabel("Paste file path").blur();
@@ -537,17 +569,17 @@ test("sidebar modules always return from an inner flow to their workspace", asyn
   const { app, page } = await launchPressF(home);
   try {
     await page.getByRole("button", { name: "New evaluation", exact: true }).click();
-    await expect(page.getByPlaceholder("Helpdesk")).toBeVisible();
+    await expect(projectNameInput(page)).toBeVisible();
 
     await page.getByRole("button", { name: "Policy Check" }).click();
-    await expect(page.getByRole("heading", { name: "Evaluation workspace" })).toBeVisible();
-    await expect(page.getByText(/rules the system must never break/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "The evaluation workspace for everyone" })).toBeVisible();
+    await expect(page.getByText(/customer support, finance, HR/)).toBeVisible();
     await page.getByRole("button", { name: "New evaluation", exact: true }).click();
-    await expect(page.getByPlaceholder("Helpdesk")).toBeVisible();
+    await expect(projectNameInput(page)).toBeVisible();
 
     await page.getByRole("button", { name: "Search Quality" }).click();
-    await expect(page.getByRole("heading", { name: "Evaluation workspace" })).toBeVisible();
-    await expect(page.getByText(/wrong answers might be a retrieval problem/)).toBeVisible();
+    await expect(page.getByRole("heading", { name: "The evaluation workspace for everyone" })).toBeVisible();
+    await expect(page.getByText(/enterprise search, help centres/)).toBeVisible();
   } finally {
     await app.close();
     rmSync(home, { recursive: true, force: true });

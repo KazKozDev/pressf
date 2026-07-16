@@ -63,3 +63,35 @@ def test_pairwise_report_states_whether_the_new_version_is_ready(tmp_path):
     text = write_report(project).read_text(encoding="utf-8")
     assert "B win rate" in text
     assert "can be released" in text
+
+
+def test_retrieval_report_includes_corpus_ranking_metrics(tmp_path):
+    from pressf.config import LLMConfig, ProjectConfig, RetrieverConfig
+    from pressf.io import write_jsonl_atomic
+    from pressf.schemas import ContextChunk, Example, RetrievalMetrics, Verdict
+
+    root = tmp_path / "search"
+    project = Project(root)
+    kb = tmp_path / "kb"
+    kb.mkdir()
+    project.save_config(ProjectConfig(
+        project="search", task="retrieval_quality",
+        retriever=RetrieverConfig(kind="docs_folder", path=str(kb)), llm=LLMConfig(),
+    ))
+    write_jsonl_atomic(project.examples_path, [Example(
+        id="e1", question="q", answer="a", context=[ContextChunk(text="t", source="doc")]
+    )])
+    write_jsonl_atomic(project.verdicts_path, [Verdict(
+        example_id="e1", claims=[], category="context_sufficient", recommendation="p",
+        answerable=True, confidence=0.9, reasoning="ok", judge_model="fixture",
+        retrieval_metrics=RetrievalMetrics(
+            k=[1], precision_at_k={1: 1.0}, recall_at_k={1: 1.0},
+            ndcg_at_k={1: 1.0}, hit_at_k={1: 1.0}, mrr=1.0, map=1.0,
+        ),
+    )])
+
+    text = write_report(project).read_text(encoding="utf-8")
+
+    assert "Retrieval ranking metrics" in text
+    assert "| Precision | 1.000 |" in text
+    assert "- MRR: 1.000" in text

@@ -38,6 +38,7 @@ class ColumnMapping(BaseModel):
     question: str
     answer: str
     context: str | None = None
+    relevant: str | None = None
     dialog: str | None = None  #column with multi-way dialog (JSON-array {role, content})
     trajectory: str | None = None
     id: str | None = None
@@ -76,9 +77,25 @@ def _parse_context(value: Any) -> list[ContextChunk] | None:
             if isinstance(item, str):
                 out.append(ContextChunk(text=item))
             elif isinstance(item, dict) and item.get("text"):
-                out.append(ContextChunk(text=str(item["text"]), source=item.get("source")))
+                out.append(ContextChunk(
+                    text=str(item["text"]), source=item.get("source"), id=item.get("id")
+                ))
         return out or None
     return None
+
+
+def _parse_relevant_ids(value: Any) -> list[str] | None:
+    """Gold relevance is a JSON array of source or document identifiers."""
+    if value is None or value == "":
+        return None
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"invalid relevant_ids JSON: {exc.msg}") from exc
+    if not isinstance(value, list):
+        raise ValueError("relevant_ids must be a JSON array")
+    return list(dict.fromkeys(str(item) for item in value))
 
 
 def _parse_trajectory(value: Any) -> list[TrajectoryStep] | None:
@@ -159,6 +176,7 @@ def normalize_rows(
         trajectory_value = row.get(mapping.trajectory) if mapping.trajectory else row.get("trajectory")
         try:
             trajectory = _parse_trajectory(trajectory_value)
+            relevant_ids = _parse_relevant_ids(row.get(mapping.relevant)) if mapping.relevant else None
         except ValueError as exc:
             result.rejected.append((i, str(exc)))
             continue
@@ -178,6 +196,7 @@ def normalize_rows(
             question=question,
             answer=answer,
             context=_parse_context(row.get(mapping.context)) if mapping.context else None,
+            relevant_ids=relevant_ids,
             dialog=dialog,
             trajectory=trajectory,
             meta={"source_row": i, "raw_file": raw_file,

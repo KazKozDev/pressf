@@ -39,6 +39,21 @@ def test_context_parsing_variants():
     assert result.accepted[2].context is None
 
 
+def test_relevant_ids_and_context_document_ids_are_ingested():
+    rows = [{
+        "q": "Q?",
+        "a": "A",
+        "ctx": json.dumps([{"text": "chunk", "source": "doc.md", "id": "doc-1"}]),
+        "relevant": json.dumps(["doc-1", "doc.md", "doc-1"]),
+    }]
+
+    result = normalize_rows(rows, ColumnMapping(question="q", answer="a", context="ctx", relevant="relevant"))
+
+    example = result.accepted[0]
+    assert example.context[0].id == "doc-1"
+    assert example.relevant_ids == ["doc-1", "doc.md"]
+
+
 def test_load_jsonl_and_csv(tmp_path: Path):
     jl = tmp_path / "x.jsonl"
     jl.write_text('{"q": "Q?", "a": "A"}\nnot json\n', encoding="utf-8")

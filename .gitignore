@@ -12,3 +12,5 @@ tmp/
 out/
 *.dmg
 *.dmg.blockmap
+.DS_Store
+.coverage

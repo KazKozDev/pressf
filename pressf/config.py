@@ -68,8 +68,31 @@ class IngestConfig(BaseModel):
     question: str = "question"
     answer: str = "answer"
     context: str | None = None
+    relevant: str | None = None
     trajectory: str | None = None
     id: str | None = None
+
+
+class RetrievalMetricsConfig(BaseModel):
+    """Ranking cutoffs for the retrieval-quality metrics."""
+
+    k: list[int] = Field(default_factory=lambda: [1, 3, 5, 10])
+
+    @model_validator(mode="after")
+    def _valid_k(self):
+        if not self.k or any(value <= 0 for value in self.k):
+            raise ValueError("retrieval_metrics.k must contain positive integers")
+        self.k = list(dict.fromkeys(self.k))
+        return self
+
+
+def parse_retrieval_k(value: str) -> list[int]:
+    """Parse the CLI's comma-separated IR ranking cutoffs."""
+    try:
+        values = [int(item.strip()) for item in value.split(",") if item.strip()]
+    except ValueError as exc:
+        raise ValueError("--k must be a comma-separated list of positive integers") from exc
+    return RetrievalMetricsConfig(k=values).k
 
 
 class ExportConfig(BaseModel):
@@ -113,6 +136,7 @@ class ProjectConfig(BaseModel):
     retriever: RetrieverConfig | None = None
     embeddings: EmbeddingsConfig | None = None
     ingest: IngestConfig | None = None
+    retrieval_metrics: RetrievalMetricsConfig = Field(default_factory=RetrievalMetricsConfig)
     llm: LLMConfig = Field(default_factory=LLMConfig)
     export: ExportConfig = Field(default_factory=ExportConfig)
     bot: BotConfig | None = None

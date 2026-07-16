@@ -33,14 +33,17 @@ Search Quality measures retrieval, not PressF's BM25 fallback. Include the retri
   --question-col question \
   --answer-col answer \
   --context-col retrieved_context \
+  --relevant-col relevant_ids \
   --retriever docs_folder \
   --kb ./docs \
   --yes
 
-.venv/bin/lazy check search-audit --task retrieval_quality
+.venv/bin/lazy check search-audit --task retrieval_quality --k 1,3,5,10
 ```
 
-The context cell can be plain text, a JSON array of strings, or a JSON array of `{ "text", "source" }` chunks. A missing context is an error, because otherwise the result would describe PressF's search rather than yours.
+The context cell can be plain text, a JSON array of strings, or a JSON array of `{ "text", "source", "id" }` chunks. A missing context is an error, because otherwise the result would describe PressF's search rather than yours.
+
+For reproducible IR metrics, map a JSON-array `relevant_ids` column. Its values are matched to the logged chunks' `source` or `id`; repeated chunks from the same gold document count once for Recall and MAP. Precision@k always divides by the requested `k`, including when fewer chunks were returned. The report includes Precision@k, Recall@k, nDCG@k, Hit@k, MRR, and MAP. When gold IDs are absent, one additional judge request grades every chunk 0–2; metrics are written only if every ordered chunk receives exactly one grade. The default cutoffs are `1,3,5,10`, or choose another set with `lazy check search-audit --k 1,5,20`.
 
 ## Policy Check
 

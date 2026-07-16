@@ -17,6 +17,7 @@ from ..schemas import (
     Verdict,
     VerificationResult,
 )
+from .retrieval_metrics import from_graded, from_gold
 
 
 def aggregate_trajectory_verdict(
@@ -222,6 +223,9 @@ def aggregate_retrieval_quality_verdict(
     judge_model: str,
     escalated: bool,
     cost_usd: float,
+    relevant_ids: list[str] | None = None,
+    graded_relevances: list[int] | None = None,
+    k_values: list[int] | None = None,
 ) -> Verdict:
     rec = "p" if result.status == "context_sufficient" else "f"
     evidence: list[Evidence] = []
@@ -235,6 +239,12 @@ def aggregate_retrieval_quality_verdict(
         evidence.append(Evidence(text=result.helpful_quote, source=source, score=score))
     claim_text = result.missing_information or "Retrieval quality check"
     status = "supported" if result.status == "context_sufficient" else "not_found"
+    metrics = None
+    cutoffs = k_values or [1, 3, 5, 10]
+    if relevant_ids is not None:
+        metrics = from_gold(chunks, relevant_ids, cutoffs)
+    elif graded_relevances is not None:
+        metrics = from_graded(chunks, graded_relevances, cutoffs)
     return Verdict(
         example_id=example_id,
         claims=[ClaimVerdict(text=claim_text, status=status, evidence=evidence)],
@@ -246,6 +256,7 @@ def aggregate_retrieval_quality_verdict(
         confidence=result.confidence,
         reasoning=result.reasoning,
         judge_model=judge_model,
+        retrieval_metrics=metrics,
         escalated=escalated,
         cost_usd=round(cost_usd, 6),
     )

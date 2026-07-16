@@ -22,6 +22,7 @@ from .config import (
     ProjectConfig,
     RetrieverConfig,
     canonical_task,
+    parse_retrieval_k,
 )
 from .ingest import ColumnMapping, load_rows, run_ingest
 
@@ -104,6 +105,7 @@ def init(
     question_col: Optional[str] = typer.Option(None, help="Column with a question"),
     answer_col: Optional[str] = typer.Option(None, help="Answer column"),
     context_col: Optional[str] = typer.Option(None, help="Column with context RAG-a (optional)"),
+    relevant_col: Optional[str] = typer.Option(None, help="JSON-array column with gold relevant source/document ids (optional)"),
     id_col: Optional[str] = typer.Option(None, help="Column with id (optional)"),
     retriever: Optional[str] = typer.Option(None, help="Retriever: docs_folder | chunks_file | chroma | qdrant | ..."),
     llm_provider: str = typer.Option("anthropic", help="Judge Provider: anthropic | openai | openai_compatible"),
@@ -184,6 +186,7 @@ def init(
         question=ask(question_col, "Column with a question", "question"),
         answer=ask(answer_col, "Answer column", "answer"),
         context=context_col or (None if yes else (Prompt.ask("Column with context RAG-a (Enter - no)", default="") or None)),
+        relevant=relevant_col,
         id=id_col,
         trajectory=trajectory_col or ("trajectory" if task == "agent_trajectory" and "trajectory" in header else None),
     )
@@ -253,7 +256,8 @@ def init(
         retriever=retr_cfg,
         ingest=IngestConfig(
             question=mapping.question, answer=mapping.answer,
-            context=mapping.context, trajectory=mapping.trajectory, id=mapping.id,
+            context=mapping.context, relevant=mapping.relevant,
+            trajectory=mapping.trajectory, id=mapping.id,
         ),
         llm=llm_cfg,
         export=ExportConfig(),
@@ -273,6 +277,7 @@ def check(
     limit: Optional[int] = typer.Option(None, help="Check no more than N examples"),
     sync: bool = typer.Option(False, "--sync", help="Synchronous mode instead of Batch API"),
     dry_run: bool = typer.Option(False, "--dry-run", help="Estimate only, no launch"),
+    k: Optional[str] = typer.Option(None, "--k", help="Ranking cutoffs for Search Quality, e.g. 1,3,5,10"),
     task: Optional[str] = typer.Option(None, "--task", help="Task override: rag_faithfulness | policy_compliance | retrieval_quality | pairwise_compare"),
     sample: Optional[int] = typer.Option(None, "--sample", help="Check a random sample of N examples (representative, cheaper than a full run)"),
     seed: int = typer.Option(0, "--seed", help="Seed samples for --sample (reproducibility)"),
@@ -289,6 +294,13 @@ def check(
     cfg = project.load_config()
     if task:
         cfg.task = canonical_task(task)
+    if k is not None:
+        try:
+            cfg.retrieval_metrics.k = parse_retrieval_k(k)
+        except ValueError as exc:
+            console.print(f"[red]{exc}[/red]")
+            raise typer.Exit(1) from exc
+    if task or k is not None:
         project.save_config(cfg)
     client = build_llm_client(cfg.llm)
     examples = project.load_examples()
@@ -368,6 +380,17 @@ def _print_check_summary(summary) -> None:
     )
     if summary.budget_stop:
         console.print("[yellow]Stopped by budget (llm.max_budget_usd in lazy.yaml).[/yellow]")
+    if summary.retrieval_metrics is not None:
+        metrics = summary.retrieval_metrics
+        cutoffs = ", ".join(
+            f"P@{k}={metrics.precision_at_k[k]:.3f}, R@{k}={metrics.recall_at_k[k]:.3f}, "
+            f"nDCG@{k}={metrics.ndcg_at_k[k]:.3f}, Hit@{k}={metrics.hit_at_k[k]:.3f}"
+            for k in metrics.k
+        )
+        console.print(
+            f"Ranking metrics ({metrics.examples} examples): {cutoffs}; "
+            f"MRR={metrics.mrr:.3f}, MAP={metrics.map:.3f}"
+        )
     console.print("Next: [b]lazy review[/b]")
 
 
@@ -458,7 +481,8 @@ def add(
         raise typer.Exit(1)
     mapping = ColumnMapping(
         question=cfg.ingest.question, answer=cfg.ingest.answer,
-        context=cfg.ingest.context, trajectory=cfg.ingest.trajectory, id=cfg.ingest.id,
+        context=cfg.ingest.context, relevant=cfg.ingest.relevant,
+        trajectory=cfg.ingest.trajectory, id=cfg.ingest.id,
     )
     existing = project.load_examples()
     existing_keys = {example_key(ex.question, ex.answer, ex.trajectory) for ex in existing}

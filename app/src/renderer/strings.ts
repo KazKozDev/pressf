@@ -117,7 +117,7 @@ export const S = {
   },
   home: {
     title: "Is your AI telling the truth?",
-    workspaceTitle: "Evaluation workspace",
+    workspaceTitle: "The evaluation workspace for everyone",
     check: "New evaluation",
     newEvaluation: "New evaluation",
     tryExample: "Show a real error",
@@ -189,6 +189,48 @@ export const S = {
     kappaRow: (a: string, b: string, n: number) => `${a} × ${b} · ${n} shared`,
     needMore: "Review a few answers to unlock judge quality numbers."
   },
+  judgeEvaluation: {
+    action: "Evaluate judge",
+    title: "Judge evaluation",
+    body: "Compare the judge's recommendations with human review, inspect the evidence behind disagreements, and refine its guidance.",
+    coverage: (reviewed: number, total: number) => `${reviewed} / ${total} human-reviewed`,
+    noVerdicts: "No judge verdicts yet. Run the judge before evaluating its quality.",
+    noHumanLabels: "The judge has verdicts, but no human labels yet. Review examples to measure agreement.",
+    disagreements: "Disagreements",
+    disagreementCount: (count: number) => `${count} case${count === 1 ? "" : "s"} to inspect`,
+    noDisagreements: "No disagreements so far — the reviewed human labels agree with the judge.",
+    openCase: "Open case",
+    example: "Example",
+    judge: "Judge",
+    human: "Human",
+    category: "Verdict category",
+    confidence: "Confidence",
+    pass: "Pass",
+    fail: "Fail",
+    skipped: "Skipped",
+    caseTitle: "Evaluate case",
+    caseBody: "Review the evidence, then revise the human label if needed. This adds a new annotation; previous decisions stay in the audit trail.",
+    answer: "Answer",
+    context: "Evidence and context",
+    reasoning: "Judge reasoning",
+    claims: "Claims and evidence",
+    noEvidence: "No supporting evidence was recorded for this verdict.",
+    humanDecision: "Human decision",
+    passAction: "Pass",
+    failAction: "Fail",
+    skipAction: "Can't assess",
+    notePlaceholder: "Why can't this case be assessed?",
+    reviseHint: "Choosing Pass or Fail revises the effective human label.",
+    propose: "Propose calibration",
+    proposeBody: "Use judge–human disagreements to propose a guideline update. You will review and confirm it before it changes GUIDELINES.md.",
+    proposing: "Preparing proposal…",
+    proposalTitle: "Suggested guideline update",
+    proposalBody: "Review this proposal before adding it to GUIDELINES.md. It will be used on the next judge check.",
+    accept: "Accept update",
+    reject: "Reject",
+    applied: "Guidelines updated. Re-run the judge to measure the change.",
+    openFromFinish: "Evaluate judge"
+  },
   interview: {
     back: "Back",
     next: "Next",
@@ -223,10 +265,10 @@ export const S = {
         { label: "You get", body: "A verified goldset, trust score, and exportable report." }
       ],
       policy_compliance: [
-        { label: "You provide", body: "Questions, answers, and the policies, playbooks, or rules they must follow." },
-        { label: "PressF checks", body: "Whether answers break or miss those rules." },
-        { label: "You review", body: "Flagged violations and the evidence behind them." },
-        { label: "You get", body: "A verified policy-evaluation set and report." }
+        { label: "You provide", body: "Answers and the rules they must follow." },
+        { label: "PressF checks", body: "Rule breaks and the rule behind each one." },
+        { label: "You review", body: "Flagged cases." },
+        { label: "You get", body: "A verified policy report and review set." }
       ],
       retrieval_quality: [
         { label: "You provide", body: "Questions, answers, recorded retrieved context, and source documents." },
@@ -235,9 +277,9 @@ export const S = {
         { label: "You get", body: "A verified retrieval-quality set and report." }
       ],
       pairwise_compare: [
-        { label: "You provide", body: "A checked baseline project and new answers to the same questions." },
-        { label: "PressF checks", body: "Both versions against the same evidence." },
-        { label: "You review", body: "Which version wins each pair, or mark a tie." },
+        { label: "You provide", body: "Baseline and new answers." },
+        { label: "PressF checks", body: "Both versions use the same evidence." },
+        { label: "You review", body: "Choose a winner or tie." },
         { label: "You get", body: "A comparison report and training pairs. PressF does not run either model." }
       ],
       agent_trajectory: [
@@ -355,8 +397,8 @@ export const S = {
     question: "Is the answer correct?",
     yes: "Yes",
     no: "No",
-    skip: "skip",
-    skipNote: "Why skip this one?",
+    skip: "Can't assess",
+    skipNote: "Why can't this case be assessed?",
     undo: "Undo",
     details: "Details",
     rawCaption: "Shown in the language of your data.",
@@ -404,7 +446,7 @@ export const S = {
   finish: {
     done: "Done!",
     save: "Save report",
-    again: (name: string) => `Check again after you fix ${name}`,
+    again: "Check again",
     saved: "Report saved.",
     showInFinder: "Show in Finder",
     disagreements: "View disagreements",

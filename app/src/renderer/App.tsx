@@ -31,7 +31,7 @@ import { S } from "./strings";
 import wordmark from "./assets/wordmark.png";
 import "./styles.css";
 
-type Screen = "home" | "name" | "baseline" | "answers" | "docs" | "judge" | "columns" | "ready" | "scan" | "hub" | "list" | "card" | "finish" | "disagreements" | "key" | "addAnswers" | "help";
+type Screen = "home" | "name" | "baseline" | "answers" | "docs" | "judge" | "columns" | "ready" | "scan" | "hub" | "list" | "card" | "finish" | "disagreements" | "judgeEvaluation" | "judgeCase" | "key" | "addAnswers" | "help";
 type ReviewMode = "suspicious" | "fine" | FindingCategory;
 type ReviewOrder = "confidence" | "informative" | "random" | "original";
 type ModuleTask = "rag_faithfulness" | "policy_compliance" | "retrieval_quality" | "pairwise_compare" | "agent_trajectory";
@@ -667,7 +667,7 @@ function DisagreementsScreen({ rows, onBack }: { rows: DisagreementRecord[]; onB
   );
 }
 
-function Hub({ state, onMode, onList, onOpenCard, onFinish, onAdd, order, onOrder, onSelfCheck }: { state: ProjectState; onMode: (mode: ReviewMode) => void; onList: (mode: ReviewMode) => void; onOpenCard: (id: string) => void; onFinish: () => void; onAdd: () => void; order: ReviewOrder; onOrder: (order: ReviewOrder) => void; onSelfCheck: () => void }) {
+function Hub({ state, onMode, onList, onOpenCard, onFinish, onAdd, order, onOrder, onSelfCheck, onJudgeEvaluation }: { state: ProjectState; onMode: (mode: ReviewMode) => void; onList: (mode: ReviewMode) => void; onOpenCard: (id: string) => void; onFinish: () => void; onAdd: () => void; order: ReviewOrder; onOrder: (order: ReviewOrder) => void; onSelfCheck: () => void; onJudgeEvaluation: () => void }) {
   const [pairsSaved, setPairsSaved] = useState(false);
   const counts = projectCounts(state);
   const categories = categoryCounts(state);
@@ -704,6 +704,7 @@ function Hub({ state, onMode, onList, onOpenCard, onFinish, onAdd, order, onOrde
           <div className="hubActions">
             <button className="hubAction" onClick={onAdd}><Plus size={15} /> {S.addAnswers.action}</button>
             <button className="hubAction" onClick={onSelfCheck}><RotateCcw size={15} /> {S.review.selfCheck}</button>
+            <button className="hubAction" onClick={onJudgeEvaluation}><ShieldCheck size={15} /> {S.judgeEvaluation.action}</button>
             <button className="hubAction" onClick={async () => { await window.pressf.runExport(state.root, { pairs: true }); setPairsSaved(true); }}><Save size={15} /> {S.export.pairs}</button>
             {pairsSaved && <button className="hubAction" onClick={() => window.pressf.revealFile(state.paths.pairs)}>{S.export.showPairs}</button>}
           </div>
@@ -871,7 +872,9 @@ function CardScreen({ state, assistant, currentId, mode, onState, onDone, onBack
         <div className="decisionActions">
           <button className="yesBtn" onClick={() => submit("p")}>{S.card.yes} {keycap("P")}</button>
           <button className="noBtn" onClick={() => submit("f")}>{S.card.no} {keycap("F")}</button>
-          <button className="skipLink" onClick={() => setNoteOpen(true)}>{S.card.skip} {keycap("S")}</button>
+          <button className="skipBtn" onClick={() => setNoteOpen(true)}>{S.card.skip} {keycap("S")}</button>
+        </div>
+        <div className="reviewTools">
           <button className="undoSmall" onClick={() => window.pressf.undo(state.root).then(onState)}><RotateCcw size={16} /> {S.card.undo}</button>
           {!selfCheckQueue && <button className="skipLink" onClick={() => setBlindReview((current) => !current)}>{blindReview ? S.card.revealJudge : S.card.blind}</button>}
         </div>
@@ -944,7 +947,7 @@ function CompareCardScreen({ state, currentId, mode, onState, onDone, onBack }: 
           </article>
         </div>
         <h1>{S.compare.question}</h1>
-        <div className="decisionActions">
+        <div className="decisionActions compareDecisionActions">
           <button className="yesBtn" onClick={() => submit("left")}>{S.compare.left} {keycap("←")}</button>
           <button className="noBtn" onClick={() => submit("right")}>{S.compare.right} {keycap("→")}</button>
           <button className="skipLink" onClick={() => submit("tie")}>{S.compare.tie} {keycap("T")}</button>
@@ -1077,7 +1080,124 @@ function JudgeQualityPanel({ state }: { state: ProjectState }) {
   );
 }
 
-function Finish({ state, assistant, onNew, onDisagreements, onRecheck }: { state: ProjectState; assistant: string; onNew: () => void; onDisagreements: (rows: DisagreementRecord[]) => void; onRecheck: () => void }) {
+type JudgeDisagreement = {
+  id: string;
+  question: string;
+  verdict: Verdict;
+  label: Label;
+};
+
+function judgeDisagreements(state: ProjectState): JudgeDisagreement[] {
+  return state.examples.flatMap((example) => {
+    const verdict = state.verdicts[example.id];
+    const annotation = state.effective[example.id];
+    return verdict && annotation && (annotation.label === "p" || annotation.label === "f") && verdict.recommendation !== annotation.label
+      ? [{ id: example.id, question: example.question, verdict, label: annotation.label }]
+      : [];
+  });
+}
+
+function judgeDecision(label: "p" | "f") {
+  return label === "f" ? S.judgeEvaluation.fail : S.judgeEvaluation.pass;
+}
+
+function JudgeEvaluationScreen({ state, onBack, onOpenCase }: { state: ProjectState; onBack: () => void; onOpenCase: (id: string) => void }) {
+  const [calibration, setCalibration] = useState<CalibrationProposal | null>(null);
+  const [calibrating, setCalibrating] = useState(false);
+  const [calibrationError, setCalibrationError] = useState("");
+  const [calibrationApplied, setCalibrationApplied] = useState(false);
+  const verdictCount = Object.keys(state.verdicts).length;
+  const reviewed = judgeHumanPairs(state.effective, state.verdicts).length;
+  const disagreements = judgeDisagreements(state);
+
+  async function proposeCalibration() {
+    setCalibrating(true); setCalibrationError(""); setCalibrationApplied(false);
+    try {
+      setCalibration(await window.pressf.proposeCalibration(state.root));
+    } catch (e) {
+      setCalibrationError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCalibrating(false);
+    }
+  }
+
+  async function applyCalibration() {
+    if (!calibration) return;
+    await window.pressf.applyCalibration(state.root, calibration.markdown);
+    setCalibrationApplied(true);
+  }
+
+  return (
+    <main className="judgeEvaluation mainPath" data-testid="main-path">
+      <button className="backBtn" onClick={onBack}><ArrowLeft size={18} /> {S.interview.back}</button>
+      <header className="judgeEvaluationHead">
+        <div><p className="sectionEyebrow">{S.judgeEvaluation.action}</p><h1>{S.judgeEvaluation.title}</h1><p>{S.judgeEvaluation.body}</p></div>
+        <strong className="reviewCoverage">{S.judgeEvaluation.coverage(reviewed, verdictCount)}</strong>
+      </header>
+      {!verdictCount ? <section className="judgeEmpty"><h2>{S.quality.title}</h2><p>{S.judgeEvaluation.noVerdicts}</p></section> : !reviewed ? <section className="judgeEmpty"><h2>{S.quality.title}</h2><p>{S.judgeEvaluation.noHumanLabels}</p></section> : <>
+        <JudgeQualityPanel state={state} />
+        <section className="judgeDisagreements" aria-labelledby="judge-disagreements-title">
+          <div className="judgeSectionHead"><div><h2 id="judge-disagreements-title">{S.judgeEvaluation.disagreements}</h2><p>{S.judgeEvaluation.disagreementCount(disagreements.length)}</p></div></div>
+          {!disagreements.length ? <p className="judgeEmptyInline">{S.judgeEvaluation.noDisagreements}</p> : <div className="judgeDisagreementList">{disagreements.map((row) => {
+            const category = findingCategoryCopy[categoryForVerdict(row.verdict)].title;
+            return <article className="judgeDisagreement" key={row.id}>
+              <header><span className="caseId">{row.id}</span><strong>{row.question}</strong><button onClick={() => onOpenCase(row.id)}>{S.judgeEvaluation.openCase}<ChevronRight size={16} /></button></header>
+              <div className="decisionStrip" aria-label={`${S.judgeEvaluation.judge} and ${S.judgeEvaluation.human} decisions`}>
+                <div className={row.verdict.recommendation === "f" ? "negative" : "positive"}><span>{S.judgeEvaluation.judge}</span><strong>{judgeDecision(row.verdict.recommendation)}</strong></div>
+                <div className={row.label === "f" ? "negative" : "positive"}><span>{S.judgeEvaluation.human}</span><strong>{judgeDecision(row.label)}</strong></div>
+                <dl><div><dt>{S.judgeEvaluation.category}</dt><dd>{category}</dd></div><div><dt>{S.judgeEvaluation.confidence}</dt><dd>{row.verdict.confidence.toFixed(2)}</dd></div></dl>
+              </div>
+            </article>;
+          })}</div>}
+        </section>
+        <section className="judgeCalibration">
+          <div><h2>{S.judgeEvaluation.propose}</h2><p>{S.judgeEvaluation.proposeBody}</p></div>
+          <button className="primaryAction" onClick={proposeCalibration} disabled={calibrating}>{calibrating ? S.judgeEvaluation.proposing : S.judgeEvaluation.propose}</button>
+        </section>
+      </>}
+      {calibrationError && <p className="devError">{calibrationError}</p>}
+      {calibration && !calibrationApplied && <section className="calibrationProposal"><h2>{S.judgeEvaluation.proposalTitle}</h2><p>{S.judgeEvaluation.proposalBody}</p><pre>{calibration.markdown}</pre><div className="finishActions"><button className="primaryAction" onClick={applyCalibration}>{S.judgeEvaluation.accept}</button><button onClick={() => setCalibration(null)}>{S.judgeEvaluation.reject}</button></div></section>}
+      {calibrationApplied && <section className="calibrationProposal"><p className="devSaved">{S.judgeEvaluation.applied}</p></section>}
+    </main>
+  );
+}
+
+function JudgeCaseScreen({ state, currentId, onBack, onState }: { state: ProjectState; currentId: string; onBack: () => void; onState: (state: ProjectState) => void }) {
+  const [note, setNote] = useState("");
+  const [noteOpen, setNoteOpen] = useState(false);
+  const [startedAt, setStartedAt] = useState(Date.now());
+  const example = state.examples.find((item) => item.id === currentId);
+  const verdict = state.verdicts[currentId];
+  const annotation = state.effective[currentId];
+  useEffect(() => setStartedAt(Date.now()), [currentId]);
+  if (!example || !verdict) return null;
+  async function decide(label: Label) {
+    if (label === "s" && !note.trim()) { setNoteOpen(true); return; }
+    onState(await window.pressf.decideById(state.root, example.id, label, label === "s" ? note : undefined, Date.now() - startedAt));
+    setNote(""); setNoteOpen(false);
+  }
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLInputElement) return;
+      if (event.key.toLowerCase() === "p") void decide("p");
+      if (event.key.toLowerCase() === "f") void decide("f");
+      if (event.key.toLowerCase() === "s") setNoteOpen(true);
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  });
+  const evidence = evidenceFor(verdict);
+  return <main className="judgeCase mainPath" data-testid="main-path">
+    <button className="backBtn" onClick={onBack}><ArrowLeft size={18} /> {S.interview.back}</button>
+    <header className="judgeCaseHead"><p className="sectionEyebrow">{example.id}</p><h1>{S.judgeEvaluation.caseTitle}</h1><p>{S.judgeEvaluation.caseBody}</p></header>
+    <section className="judgeCaseQuestion"><h2>{example.question}</h2><div className="decisionStrip compact"><div className={verdict.recommendation === "f" ? "negative" : "positive"}><span>{S.judgeEvaluation.judge}</span><strong>{judgeDecision(verdict.recommendation)}</strong></div><div className={annotation?.label === "f" ? "negative" : "positive"}><span>{S.judgeEvaluation.human}</span><strong>{annotation?.label === "p" || annotation?.label === "f" ? judgeDecision(annotation.label) : S.judgeEvaluation.skipped}</strong></div><dl><div><dt>{S.judgeEvaluation.category}</dt><dd>{findingCategoryCopy[categoryForVerdict(verdict)].title}</dd></div><div><dt>{S.judgeEvaluation.confidence}</dt><dd>{verdict.confidence.toFixed(2)}</dd></div></dl></div></section>
+    <section className="judgeCaseGrid"><article><h2>{S.judgeEvaluation.answer}</h2><blockquote>{example.answer}</blockquote></article><article><h2>{S.judgeEvaluation.reasoning}</h2><blockquote>{verdict.reasoning}</blockquote></article></section>
+    <section className="caseEvidence"><h2>{S.judgeEvaluation.claims}</h2>{evidence.length ? evidence.map((item, index) => <article key={`${item.claim}-${index}`}><p>{item.claim}</p><blockquote>{item.text}</blockquote><small>{item.source}</small></article>) : <p>{S.judgeEvaluation.noEvidence}</p>}{example.context?.length ? <><h2>{S.judgeEvaluation.context}</h2>{example.context.map((item, index) => <article key={`${item.source}-${index}`}><blockquote>{item.text}</blockquote><small>{item.source ?? "—"}</small></article>)}</> : null}</section>
+    <section className="humanDecision"><div><h2>{S.judgeEvaluation.humanDecision}</h2><p>{S.judgeEvaluation.reviseHint}</p></div><div className="decisionActions"><button className="yesBtn" onClick={() => void decide("p")}>{S.judgeEvaluation.passAction} {keycap("P")}</button><button className="noBtn" onClick={() => void decide("f")}>{S.judgeEvaluation.failAction} {keycap("F")}</button><button className="skipBtn" onClick={() => setNoteOpen(true)}>{S.judgeEvaluation.skipAction} {keycap("S")}</button></div>{noteOpen && <div className="noteLine"><input value={note} onChange={(event) => setNote(event.target.value)} placeholder={S.judgeEvaluation.notePlaceholder} autoFocus /><button onClick={() => void decide("s")}>{S.judgeEvaluation.skipAction}</button></div>}</section>
+  </main>;
+}
+
+function Finish({ state, assistant, onNew, onDisagreements, onRecheck, onJudgeEvaluation }: { state: ProjectState; assistant: string; onNew: () => void; onDisagreements: (rows: DisagreementRecord[]) => void; onRecheck: () => void; onJudgeEvaluation: () => void }) {
   const [saved, setSaved] = useState(false);
   const [reportPath, setReportPath] = useState<string | null>(null);
   const [formats, setFormats] = useState<string[]>(["jsonl"]);
@@ -1137,8 +1257,9 @@ function Finish({ state, assistant, onNew, onDisagreements, onRecheck }: { state
         </div>
         <div className="finishActionGroup finishReviewActions">
           <button onClick={viewDisagreements}>{S.finish.disagreements}</button>
+          {state.task !== "pairwise_compare" && <button onClick={onJudgeEvaluation}>{S.judgeEvaluation.openFromFinish}</button>}
           {score !== null && <button onClick={improveJudge} disabled={calibrating}>{calibrating ? "Preparing suggestion…" : S.finish.improveJudge}</button>}
-          <button className="finishRecheck" onClick={onNew}>{S.finish.again(assistant)}</button>
+          <button className="finishRecheck" onClick={onNew}>{S.finish.again}</button>
         </div>
       </div>
       {saved && <div className="savedReport"><p className="saved">{S.finish.saved}</p><button onClick={() => reportPath && window.pressf.revealFile(reportPath)}><FolderOpen size={16} /> {S.finish.showInFinder}</button></div>}
@@ -1538,13 +1659,15 @@ function App() {
       return <InterviewShell onBack={() => setScreen(state?.task === "agent_trajectory" ? "judge" : "docs")}><h1>{S.interview.ready}</h1><p className="readyLine">{S.interview.readyLine(checkOptions.limit ? Math.min(checkOptions.limit, state?.examples.length ?? 0) : state?.examples.length ?? 0, estimateCost)}</p>{!estimate && !hasPreparedChecks && <p>{S.interview.estimateFallback}</p>}<details className="advancedCheck"><summary>{S.check.advanced}</summary><label><input type="checkbox" checked={Boolean(checkOptions.force)} onChange={(event) => setCheckOptions((current) => ({ ...current, force: event.target.checked }))} /> {S.check.force}</label><label>{S.check.limit}<input type="number" min="1" max={state?.examples.length || 1} value={checkOptions.limit || ""} onChange={(event) => setCheckOptions((current) => ({ ...current, limit: event.target.value ? Number(event.target.value) : undefined }))} /></label>{checkOptions.limit && <small>{S.check.limitHint(checkOptions.limit)}</small>}<label><input type="checkbox" checked={Boolean(checkOptions.sync)} onChange={(event) => setCheckOptions((current) => ({ ...current, sync: event.target.checked }))} /> {S.check.sync}</label></details><button className="primaryAction" onClick={startRealScan}>{estimate || hasPreparedChecks || state?.task === "pairwise_compare" ? S.interview.start : S.interview.connectKey}</button></InterviewShell>;
     }
     if (screen === "scan" && scan) return <ScanScreen state={state} status={scan} onDone={() => setScreen("hub")} onCancel={cancelScan} />;
-    if (screen === "hub" && state) return <Hub state={state} onMode={startMode} onList={(nextMode) => { setMode(nextMode); setScreen("list"); }} onOpenCard={(id) => { setMode("suspicious"); setCurrentId(id); setScreen("card"); }} onFinish={() => setScreen("finish")} onAdd={() => beginAddAnswers(state.root)} order={reviewOrder} onOrder={setReviewOrder} onSelfCheck={beginSelfCheck} />;
+    if (screen === "hub" && state) return <Hub state={state} onMode={startMode} onList={(nextMode) => { setMode(nextMode); setScreen("list"); }} onOpenCard={(id) => { setMode("suspicious"); setCurrentId(id); setScreen("card"); }} onFinish={() => setScreen("finish")} onAdd={() => beginAddAnswers(state.root)} order={reviewOrder} onOrder={setReviewOrder} onSelfCheck={beginSelfCheck} onJudgeEvaluation={() => setScreen("judgeEvaluation")} />;
     if (screen === "addAnswers" && state) return <AddAnswersScreen state={state} inspection={addInspection} file={addFile} mapping={addMapping} onFile={inspectAddFile} onMapping={setAddMapping} onAdd={addAnswers} onBack={() => setScreen("hub")} />;
     if (screen === "list" && state) return <CategoryList state={state} mode={mode} onOpen={(id) => { setCurrentId(id); setScreen("card"); }} onBack={() => setScreen("hub")} />;
     if (screen === "card" && state && currentId && state.task === "pairwise_compare") return <CompareCardScreen state={state} currentId={currentId} mode={mode} onState={(next) => { setState(next); const id = firstCardId(next, mode); if (id) setCurrentId(id); }} onDone={() => setScreen("finish")} onBack={() => setScreen("hub")} />;
     if (screen === "card" && state && currentId) return <CardScreen state={state} assistant={assistant} currentId={currentId} mode={mode} blind={selfCheckIds.length > 0} selfCheckQueue={selfCheckIds.length ? selfCheckIds : undefined} onSelfCheckAdvance={() => { const next = selfCheckIds.slice(1); setSelfCheckIds(next); setCurrentId(next[0] || null); }} onState={(next) => { setState(next); if (!selfCheckIds.length) { const id = firstCardId(next, mode, reviewOrder); if (id) setCurrentId(id); } }} onDone={() => { setSelfCheckIds([]); setScreen("finish"); }} onBack={() => { setSelfCheckIds([]); setScreen("list"); }} />;
-    if (screen === "finish" && state) return <Finish state={state} assistant={assistant} onNew={() => setScreen("name")} onDisagreements={(rows) => { setDisagreements(rows); setScreen("disagreements"); }} onRecheck={() => { setCheckOptions({ force: true }); void startRealScan({ force: true }); }} />;
+    if (screen === "finish" && state) return <Finish state={state} assistant={assistant} onNew={() => setScreen("name")} onDisagreements={(rows) => { setDisagreements(rows); setScreen("disagreements"); }} onRecheck={() => { setCheckOptions({ force: true }); void startRealScan({ force: true }); }} onJudgeEvaluation={() => setScreen("judgeEvaluation")} />;
     if (screen === "disagreements") return <DisagreementsScreen rows={disagreements} onBack={() => setScreen("finish")} />;
+    if (screen === "judgeEvaluation" && state) return <JudgeEvaluationScreen state={state} onBack={() => setScreen("hub")} onOpenCase={(id) => { setCurrentId(id); setScreen("judgeCase"); }} />;
+    if (screen === "judgeCase" && state && currentId) return <JudgeCaseScreen state={state} currentId={currentId} onState={setState} onBack={() => setScreen("judgeEvaluation")} />;
     if (screen === "key") return <KeyScreen provider={state?.llmProvider || judgeProvider} onSaved={() => state ? startRealScan() : setScreen("ready")} />;
     return <Home projects={projects} activeTask={activeTask} onCheck={() => setScreen("name")} onDemo={tryDemo} onOpen={openProject} onDelete={deleteProject} />;
   }, [projects, screen, state, name, dataPath, docsPath, kbKind, inspection, mapping, labelColumn, importLabels, estimate, mode, currentId, assistant, activeTask, baselineRoot, disagreements, addFile, addInspection, addMapping, checkOptions, judgeProvider, judgeModel, baseUrl, reviewOrder, selfCheckIds, botRunning, botReady, botError]);

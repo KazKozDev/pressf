@@ -158,6 +158,17 @@ If there is a helpful quote, return helpful_quote and helpful_source_index.
 QUESTION:{ex.question}ASSISTANT'S REPLY:{ex.answer}CONTEXT FOUND:{_numbered_chunks(chunks)}"""
 
 
+def retrieval_relevance_user(ex: Example, chunks: list[Chunk]) -> str:
+    """Grade every logged retrieval result for IR metrics, independently of quality."""
+    return f"""Grade the relevance of every retrieved context fragment to the user's question.
+
+Use 0 for irrelevant, 1 for related but incomplete, and 2 for fully relevant.
+Return exactly one grade for every fragment index. Judge relevance to the question, not whether
+the assistant's answer happens to be correct. Use only the listed context fragments.
+
+QUESTION:{ex.question}CONTEXT FOUND:{_numbered_chunks(chunks)}"""
+
+
 def pairwise_compare_user(ex: Example, chunks: list[Chunk]) -> str:
     return f"""Compare two answers to one question.
 

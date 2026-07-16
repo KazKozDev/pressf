@@ -1,6 +1,6 @@
 [project]
 name = "pressf"
-version = "0.2.0"
+version = "0.3.0"
 description = "Lazy goldset annotation: agent does the work, you press F"
 requires-python = ">=3.11"
 dependencies = [

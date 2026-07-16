@@ -19,11 +19,14 @@ from ..schemas import (
     ExtractedClaims,
     PairwiseCompareResult,
     PolicyCheckResult,
+    RetrievalMetricsSummary,
+    RetrievalRelevanceResult,
     SearchQualityResult,
     TrajectoryResult,
     Verdict,
     VerificationResult,
 )
+from .retrieval_metrics import from_graded, summarize as summarize_retrieval_metrics
 from .aggregate import (
     aggregate_claims_verdict,
     aggregate_pairwise_compare_verdict,
@@ -75,10 +78,20 @@ def context_chunks(ex: Example, retriever: Retriever) -> list[Chunk]:
     """
     if ex.context:
         return [
-            Chunk(text=item.text, source=item.source or "provided context", score=None)
+            Chunk(text=item.text, source=item.source or "provided context", score=None, id=item.id)
             for item in ex.context
         ]
     return gather_chunks(retriever, ex.question, [ex.answer], top_k=8)
+
+
+def _complete_relevance_grades(
+    result: RetrievalRelevanceResult, chunk_count: int
+) -> list[int] | None:
+    """Only use graded relevance when the judge labelled every ordered chunk once."""
+    by_index = {item.chunk_index: item.relevance for item in result.relevances}
+    if len(by_index) != len(result.relevances) or set(by_index) != set(range(chunk_count)):
+        return None
+    return [by_index[index] for index in range(chunk_count)]
 
 
 def check_example(
@@ -89,9 +102,11 @@ def check_example(
     ex: Example,
     *,
     task: str = "rag_faithfulness",
+    retrieval_k: list[int] | None = None,
 ) -> Verdict:
     """A complete fact check of one example."""
     cost = 0.0
+    retrieval_k = retrieval_k or [1, 3, 5, 10]
     if task == "agent_trajectory":
         def run_trajectory(model: str, escalated: bool, base_cost: float) -> Verdict:
             result, c = client.parse(
@@ -162,6 +177,8 @@ def check_example(
                 judge_model=model,
                 escalated=escalated,
                 cost_usd=base_cost + c,
+                relevant_ids=ex.relevant_ids,
+                k_values=retrieval_k,
             )
 
         verdict = run_search(cfg.judge_model, escalated=False, base_cost=0.0)
@@ -171,6 +188,16 @@ def check_example(
             and cfg.escalation_model != cfg.judge_model
         ):
             verdict = run_search(cfg.escalation_model, escalated=True, base_cost=verdict.cost_usd)
+        if ex.relevant_ids is None and chunks:
+            relevance, relevance_cost = client.parse(
+                model=cfg.judge_model,
+                system=system_prompt,
+                user=prompts.retrieval_relevance_user(ex, chunks),
+                schema=RetrievalRelevanceResult,
+            )
+            grades = _complete_relevance_grades(relevance, len(chunks))
+            verdict.retrieval_metrics = from_graded(chunks, grades, retrieval_k) if grades else None
+            verdict.cost_usd = round(verdict.cost_usd + relevance_cost, 6)
         return verdict
 
     if task == "pairwise_compare":
@@ -268,6 +295,7 @@ class CheckSummary:
     recommendations: dict[str, int] = field(default_factory=dict)
     escalated: int = 0
     budget_stop: bool = False
+    retrieval_metrics: RetrievalMetricsSummary | None = None
 
 
 def run_check(
@@ -322,7 +350,15 @@ def run_check(
         if summary.cost_usd >= cfg.llm.max_budget_usd:
             summary.budget_stop = True
             break
-        verdict = check_example(client, retriever, cfg.llm, system_prompt, ex, task=cfg.task)  # type: ignore[arg-type]
+        verdict = check_example(
+            client,
+            retriever,
+            cfg.llm,
+            system_prompt,
+            ex,
+            task=cfg.task,
+            retrieval_k=cfg.retrieval_metrics.k,
+        )  # type: ignore[arg-type]
         append_jsonl(project.verdicts_path, verdict)
         summary.checked += 1
         summary.cost_usd += verdict.cost_usd
@@ -334,4 +370,10 @@ def run_check(
             on_progress(ex, verdict)
 
     summary.cost_usd = round(summary.cost_usd, 4)
+    if cfg.task == "retrieval_quality":
+        summary.retrieval_metrics = summarize_retrieval_metrics(
+            verdict.retrieval_metrics
+            for verdict in project.load_verdicts().values()
+            if verdict.retrieval_metrics is not None
+        )
     return summary

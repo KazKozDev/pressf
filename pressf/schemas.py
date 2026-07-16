@@ -26,6 +26,7 @@ class Chunk(BaseModel):
     text: str
     source: str
     score: float | None = None
+    id: str | None = None
 
 
 #── pipeline data ─────────────────────────── ────────────────────────────
@@ -36,6 +37,7 @@ class ContextChunk(BaseModel):
 
     text: str
     source: str | None = None
+    id: str | None = None
 
 
 class DialogTurn(BaseModel):
@@ -84,6 +86,7 @@ class Example(BaseModel):
     answer: str
     answer_b: str | None = None
     context: list[ContextChunk] | None = None
+    relevant_ids: list[str] | None = None
     dialog: list[DialogTurn] | None = None
     trajectory: list[TrajectoryStep] | None = None
     meta: dict = Field(default_factory=dict)
@@ -142,6 +145,7 @@ class Verdict(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str
     judge_model: str
+    retrieval_metrics: RetrievalMetrics | None = None
     step_issues: list["TrajectoryStepVerdict"] | None = None
     escalated: bool = False
     cost_usd: float = 0.0
@@ -275,6 +279,48 @@ class SearchQualityResult(BaseModel):
     helpful_source_index: int | None = Field(default=None, description="Chunk index for helpful_quote")
     confidence: float = Field(ge=0.0, le=1.0)
     reasoning: str = Field(description="Short explanation for the human reviewer")
+
+
+class RetrievalChunkRelevance(BaseModel):
+    """Graded relevance of one logged retrieved chunk, indexed from zero."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    chunk_index: int = Field(ge=0)
+    relevance: int = Field(ge=0, le=2, description="0=irrelevant, 1=related, 2=fully relevant")
+
+
+class RetrievalRelevanceResult(BaseModel):
+    """LLM fallback for ranking metrics when a gold relevance set is unavailable."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    relevances: list[RetrievalChunkRelevance]
+
+
+class RetrievalMetrics(BaseModel):
+    """Per-example IR ranking metrics for one ordered retrieved context."""
+
+    k: list[int]
+    precision_at_k: dict[int, float]
+    recall_at_k: dict[int, float]
+    ndcg_at_k: dict[int, float]
+    hit_at_k: dict[int, float]
+    mrr: float
+    map: float
+
+
+class RetrievalMetricsSummary(BaseModel):
+    """Corpus means across the examples that have relevance information."""
+
+    examples: int
+    k: list[int]
+    precision_at_k: dict[int, float]
+    recall_at_k: dict[int, float]
+    ndcg_at_k: dict[int, float]
+    hit_at_k: dict[int, float]
+    mrr: float
+    map: float
 
 
 PairwiseStatus = Literal["a_better", "b_better", "tie"]

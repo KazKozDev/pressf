@@ -19,6 +19,10 @@ describe("UI strings", () => {
     }
   });
 
+  it("uses the exact home workspace title", () => {
+    expect(S.home.workspaceTitle).toBe("The evaluation workspace for everyone");
+  });
+
   it("has complete trajectory task and category copy", () => {
     expect(S.tasks.homeTitle.agent_trajectory).toBeTruthy();
     expect(S.tasks.suspiciousTitle.agent_trajectory).toBeTruthy();
@@ -30,5 +34,9 @@ describe("UI strings", () => {
       expect(S.categoryMarks[category].mark).toBeTruthy();
       expect(S.categoryMarks[category].label).toBeTruthy();
     }
+  });
+
+  it("keeps the finish recheck action concise", () => {
+    expect(S.finish.again).toBe("Check again");
   });
 });

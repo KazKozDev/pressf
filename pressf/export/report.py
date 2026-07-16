@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from ..config import Project
+from ..judge.retrieval_metrics import summarize as summarize_retrieval_metrics
 from ..llm.prompts import truncate_tool_result
 
 
@@ -126,6 +127,15 @@ def write_report(project: Project) -> Path:
         f"- {category}: {count}"
         for category, count in sorted(search_counts.items(), key=lambda item: item[1], reverse=True)
     ] or ["No confirmed search issues."]
+    retrieval_metrics = (
+        summarize_retrieval_metrics(
+            verdict.retrieval_metrics
+            for verdict in verdicts.values()
+            if verdict.retrieval_metrics is not None
+        )
+        if cfg.task == "retrieval_quality"
+        else None
+    )
 
     pairwise = None
     if cfg.task == "pairwise_compare":
@@ -233,6 +243,37 @@ def write_report(project: Project) -> Path:
             *search_rows,
             "",
         ]
+        if retrieval_metrics is None:
+            lines += [
+                "## Retrieval ranking metrics",
+                "",
+                "No numeric metrics: provide `relevant_ids` or complete graded relevance.",
+                "",
+            ]
+        else:
+            cutoffs = [f"@{k}" for k in retrieval_metrics.k]
+
+            def metric_row(name: str, values: dict[int, float]) -> str:
+                return "| " + name + " | " + " | ".join(
+                    f"{values[k]:.3f}" for k in retrieval_metrics.k
+                ) + " |"
+
+            lines += [
+                "## Retrieval ranking metrics",
+                "",
+                f"- Examples with relevance: {retrieval_metrics.examples}",
+                "",
+                "| metric | " + " | ".join(cutoffs) + " |",
+                "|---|" + "---:|" * len(cutoffs),
+                metric_row("Precision", retrieval_metrics.precision_at_k),
+                metric_row("Recall", retrieval_metrics.recall_at_k),
+                metric_row("nDCG", retrieval_metrics.ndcg_at_k),
+                metric_row("Hit rate", retrieval_metrics.hit_at_k),
+                "",
+                f"- MRR: {retrieval_metrics.mrr:.3f}",
+                f"- MAP: {retrieval_metrics.map:.3f}",
+                "",
+            ]
     if cfg.task == "pairwise_compare":
         assert pairwise is not None
         rate = f"{pairwise.b_win_rate:.1%}" if pairwise.b_win_rate is not None else "—"
